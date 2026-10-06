@@ -55,8 +55,10 @@ All gen‑3; AM4 has none of these on the wire (see below).
 - **Output levels** — `buildOutputMeterPoll` / `parseOutputMeterRms` / `meterRmsToDb`
   (`gen3/axe-fx-iii/telemetry.ts:109‑122`, 5‑septet float32 RMS → `10·log10`, clamp −40…+6 dB).
   ForgeFX `registryCore.#pollMeters()` round‑robins the 4 outputs → SSE `{type:'meters'}`.
-- **CPU** — `buildCpuPoll`/`parseCpuRawLoad`/`cpuPercentFromRaw` (`telemetry.ts:139‑151`,
-  `32 + raw·0.5`). `#pollMeters()` every ~8th tick → SSE `{type:'cpu'}`.
+- **CPU** — `buildCpuPoll`/`parseCpuRawLoad`/`cpuPercentFromRaw` (`telemetry.ts:139‑151`).
+  The byte IS the percentage (Fractal's SysEx reference: "CPU % (single byte from 0 to 100)"; FM3
+  panel confirmed raw 80 ↔ 79), so the mapping is now the identity. `#pollMeters()` every ~8th tick →
+  SSE `{type:'cpu'}`.
 - **Tuner** — `buildTunerPageOpen/Close/Poll`, `parseTunerFreqHz` (`telemetry.ts:65‑81`). FM3
   byte‑confirmed: fn `0x01` sub `0x19`, field `0x02` = fundamental Hz as float32 @ frame off 12.
 - **Tempo** — `buildSetTempoViaParam` + `parseTempoResponse`; III cmd `0x14`.
