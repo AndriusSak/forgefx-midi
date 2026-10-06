@@ -6516,7 +6516,7 @@
           "kind": "float",
           "raw": 30990,
           "value": 4.728843043305765,
-          "unit": "unverified"
+          "unit": "numeric"
         },
         {
           "paramId": 94,
@@ -6525,7 +6525,7 @@
           "kind": "float",
           "raw": 26925,
           "value": 4.108554338206122,
-          "unit": "unverified"
+          "unit": "numeric"
         },
         {
           "paramId": 97,

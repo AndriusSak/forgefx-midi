@@ -259,7 +259,7 @@
           ],
           "expected": {
             "rawByte37": 65,
-            "percent": 64.5
+            "percent": 65
           }
         },
         {
@@ -268,7 +268,7 @@
           ],
           "expected": {
             "rawByte37": 65,
-            "percent": 64.5
+            "percent": 65
           }
         },
         {
@@ -277,7 +277,7 @@
           ],
           "expected": {
             "rawByte37": 65,
-            "percent": 64.5
+            "percent": 65
           }
         }
       ]

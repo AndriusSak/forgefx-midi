@@ -197,9 +197,19 @@ export function buildLooperControl(effectId: number, controlPid: number, on: boo
 export const CPU_RESPONSE_MIN_LEN = 590;
 /** Byte offset of the block-DSP-load field inside the system-status frame. */
 export const CPU_RAW_OFFSET = 37;
-/** CPU% ≈ base + raw·slope (matched to the FM3 front-panel readout). */
-export const CPU_BASE = 32;
-export const CPU_SLOPE = 0.5;
+/**
+ * CPU% = base + raw·slope.
+ *
+ * The field is ALREADY the percentage: Fractal's MIDI SysEx reference documents the CPU reply as
+ * "CPU % (single byte from 0 to 100)", and the FM3 front panel agrees with this byte directly —
+ * observed raw 80 ↔ panel 79 (a 1-point lag, not a scale error).
+ *
+ * This used to read `32 + raw·0.5`, which was fitted against the ONE raw value the capture fixture
+ * holds (65). That line crosses the identity exactly at raw = 64, so the fit looked right where it
+ * was measured and drifted linearly away from it: at raw 80 it read 72 while the panel showed 79.
+ */
+export const CPU_BASE = 0;
+export const CPU_SLOPE = 1;
 
 /** Poll the system-status block (heavy ≥590-byte read — poll sparingly). */
 export function buildCpuPoll(modelByte: number): number[] {
