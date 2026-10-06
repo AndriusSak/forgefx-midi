@@ -654,14 +654,14 @@
         "paramId": 93,
         "name": "CABINET_DYNACAB_R1",
         "displayLabel": "DynaCab",
-        "unit": "unverified"
+        "unit": "numeric"
       },
       {
         "family": "CABINET",
         "paramId": 94,
         "name": "CABINET_DYNACAB_R2",
         "displayLabel": "DynaCab",
-        "unit": "unverified"
+        "unit": "numeric"
       },
       {
         "family": "CABINET",
