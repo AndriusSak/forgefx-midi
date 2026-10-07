@@ -96,6 +96,7 @@ import { runGen3TaperTests, GEN3_TAPER_CASE_COUNT } from './convert/gen3-taper.t
 import { runSerialCloseTests, SERIAL_CLOSE_CASE_COUNT } from './shared/serial-close.test.js';
 import { runGridGuardTests, GRID_GUARD_CASE_COUNT } from './gen3/presetbody-grid-guard.test.js';
 import { runLiveGridShuntTests, LIVE_GRID_SHUNT_CASE_COUNT } from './gen3/live-grid-shunt.test.js';
+import { runVersionConsistencyTests, VERSION_CONSISTENCY_CASE_COUNT } from './version-consistency.test.js';
 
 const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   {
@@ -200,6 +201,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   { name: `shared/serial-close (${SERIAL_CLOSE_CASE_COUNT} cases)`, run: runSerialCloseTests },
   { name: `gen3/presetbody-grid-guard (${GRID_GUARD_CASE_COUNT} cases)`, run: runGridGuardTests },
   { name: `gen3/live-grid-shunt (${LIVE_GRID_SHUNT_CASE_COUNT} cases)`, run: runLiveGridShuntTests },
+  { name: `version/consistency (${VERSION_CONSISTENCY_CASE_COUNT} cases)`, run: runVersionConsistencyTests },
 ];
 
 let failures = 0;
