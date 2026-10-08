@@ -386,6 +386,86 @@ export function parseCabIrSyx(input: readonly number[] | Uint8Array): CabIrSyx {
 }
 
 /**
+ * The BLANK chunk fill, and the device's DELETE.
+ *
+ * MEASURED 2026-10-08: a container whose entire chunk area is `0x7F` septets — Fractal's own loader
+ * ships exactly this as `empty_ir.syx` — is ACCEPTED by the unit (close-ack `0x00`, because every one of
+ * the 2048 words is identical so their XOR is 0 and the close is `00 00 00 00 00`), and the destination
+ * slot then reads **EMPTY**, indistinguishable from a never-written slot. Verified both ways on the
+ * unit with the slot-state read-back: an empty slot stayed empty, and a slot holding a real IR flipped
+ * from `populated` to `empty` while its untouched neighbour still read populated.
+ *
+ * So this is how a user cab slot is CLEARED — there is no remove opcode involved. Note the contrast
+ * with zeroed SAMPLES: an all-zero sample area keeps a real name, is stored, and reads `populated` (a
+ * silent IR, not an empty slot). The blank fill is different because it is the device's own "unwritten"
+ * pattern.
+ */
+export const CAB_IR_BLANK_FILL = 0x7f;
+
+/** Chunk bytes per data frame on the measured gen-3 (FM3 / Axe-Fx III) geometry. */
+export const CAB_IR_CHUNK_BYTES_PER_FRAME = CAB_IR_CHUNKS_PER_FRAME * 5;
+/** Data frames on the measured gen-3 (FM3 / Axe-Fx III) geometry. */
+export const CAB_IR_DATA_FRAMES = 8;
+/** The 2-byte prefix each data frame carries on the FM3/III geometry (`00 02`). */
+export const CAB_IR_DATA_PREFIX: readonly number[] = [0x00, 0x02];
+
+/** Models whose IR-container geometry this module has MEASURED (10 frames × 256 chunks, prefix 00 02). */
+const CAB_IR_KNOWN_GEOMETRY_MODELS: readonly number[] = [0x10, 0x11];
+
+/**
+ * Build a BLANK container from scratch — the delete — for `dest`.
+ *
+ * Refuses a model whose geometry has not been measured: a blank container in the wrong geometry is not
+ * a conservative failure, it is an unknown write to a cab slot.
+ */
+export function buildBlankCabIrContainer(model: number, dest: CabIrDestination): number[] {
+  if (!CAB_IR_KNOWN_GEOMETRY_MODELS.includes(model)) {
+    throw new Error(
+      `buildBlankCabIrContainer: the IR-container geometry for model 0x${model.toString(16)} has not ` +
+        `been measured (known: ${CAB_IR_KNOWN_GEOMETRY_MODELS.map((m) => `0x${m.toString(16)}`).join(', ')}). ` +
+        `Sending a blank container in an unknown geometry would be an unmeasured write to a cab slot.`,
+    );
+  }
+  const frames: number[][] = [];
+  frames.push(frameWithChecksum(model, CAB_IR_FN_START, buildCabIrStartPayload(dest)));
+  const chunkBytes = new Array<number>(CAB_IR_CHUNK_BYTES_PER_FRAME).fill(CAB_IR_BLANK_FILL);
+  for (let f = 0; f < CAB_IR_DATA_FRAMES; f++) {
+    frames.push(frameWithChecksum(model, CAB_IR_FN_DATA, [...CAB_IR_DATA_PREFIX, ...chunkBytes]));
+  }
+  // the close is DERIVED, not assumed: 2048 identical words XOR to 0, but compute it rather than
+  // hardcode the zero, so a geometry change cannot silently leave a stale value behind
+  const closePayload = computeCabIrClosePayload(frames.flat());
+  frames.push(frameWithChecksum(model, CAB_IR_FN_END, closePayload));
+  return frames.flat();
+}
+
+/** The Fractal manufacturer id bytes every frame carries. */
+const CAB_IR_MFR: readonly number[] = [0x00, 0x01, 0x74];
+
+/** A frame with its checksum fixed — the envelope convention, local to this module. */
+function frameWithChecksum(model: number, fn: number, payload: readonly number[]): number[] {
+  const body = [SYSEX_START, ...CAB_IR_MFR, model & 0x7f, fn, ...payload];
+  return [...body, fractalChecksum(body), SYSEX_END];
+}
+
+/** True when every chunk byte of the container is the blank fill (i.e. this is a blank/empty IR). */
+export function isBlankCabIr(bytes: readonly number[] | Uint8Array): boolean {
+  const b = [...bytes];
+  for (let i = 0; i + 1 < b.length; i++) {
+    if (b[i] !== SYSEX_START) continue;
+    const end = b.indexOf(SYSEX_END, i);
+    if (end < 0) break;
+    const f = b.slice(i, end + 1);
+    if (f[5] === CAB_IR_FN_DATA) {
+      const chunkBytes = f.slice(8, f.length - 2);
+      if (!chunkBytes.every((x) => x === CAB_IR_BLANK_FILL)) return false;
+    }
+    i = end;
+  }
+  return true;
+}
+
+/**
  * The container's content checksum — the value the close frame (`0x7C`) carries.
  *
  * **MEASURED AND INDEPENDENTLY REPRODUCED (2026-10-08):** it is the XOR of every decoded 32-bit chunk
