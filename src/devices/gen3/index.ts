@@ -197,6 +197,7 @@ export { FIRMWARE_FAMILY_FNS, isFirmwareFamilyFn, frameFn } from './firmwareFami
 export { decodeCabSlotName, CAB_SLOT_NAME_OFFSET, CAB_SLOT_NAME_CHARS } from './cabSlotState.js';
 export {
   parsePerformPage,
+  patchPerformSlot,
   findPerformTables,
   readText16,
   textStringsIn,

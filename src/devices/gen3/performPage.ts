@@ -144,3 +144,41 @@ export function parsePerformPage(body: ArrayLike<number>): PerformPage | undefin
   }
   return { at, slots, assigned: slots.filter((s) => s.effectId !== 0).length };
 }
+
+/**
+ * Patch ONE slot of the perform page in place — the WRITE side, in the byte domain.
+ *
+ * The tables are fixed-size, so writing a slot is length-preserving, and the label blocks are fixed-width
+ * (32-byte) windows, so their text is written truncated-and-NUL-padded rather than resized. Both are
+ * written together ON PURPOSE: a round trip on 2026-10-08 changed a slot's eid/pid while leaving its labels
+ * alone, which produced a page that passed every structural check and displayed a STALE name ("Master
+ * Volume" pointing at Cab proximity). Structure and labels have to move as one.
+ *
+ * Returns false (and writes nothing) when the body has no page or the slot is out of range — never a
+ * partial write.
+ */
+export function patchPerformSlot(
+  body: Uint8Array,
+  slot: number,
+  next: { effectId?: number; paramId?: number; effectLabel?: string; paramLabel?: string }
+): boolean {
+  const page = parsePerformPage(body);
+  if (!page) return false;
+  const i = slot - 1;
+  if (!Number.isInteger(i) || i < 0 || i >= PERFORM_SLOTS) return false;
+  const at = page.at;
+  const recs = at + PERFORM_TABLE_BYTES;
+  const paramBlock = recs + PERFORM_SLOTS * PERFORM_RECORD_STRIDE;
+  const put = (o: number, v: number): void => { body[o] = v & 0xff; body[o + 1] = (v >> 8) & 0xff; };
+  const writeText = (o: number, text: string): void => {
+    // one 32-byte window = 16 uint16 slots; the last one stays NUL so the string is always terminated
+    const maxChars = PERFORM_RECORD_STRIDE / 2 - 1;
+    const chars = [...text].slice(0, maxChars);
+    for (let k = 0; k < PERFORM_RECORD_STRIDE / 2; k++) put(o + k * 2, k < chars.length ? chars[k]!.charCodeAt(0) & 0x7f : 0);
+  };
+  if (next.effectId !== undefined) put(at + i * 2, next.effectId);
+  if (next.paramId !== undefined) put(at + PERFORM_SLOTS * 2 + i * 2, next.paramId);
+  if (next.effectLabel !== undefined) writeText(recs + i * PERFORM_RECORD_STRIDE, next.effectLabel);
+  if (next.paramLabel !== undefined) writeText(paramBlock + i * PERFORM_RECORD_STRIDE, next.paramLabel);
+  return true;
+}
