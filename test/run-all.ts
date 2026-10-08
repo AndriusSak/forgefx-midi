@@ -59,6 +59,7 @@ import { runGen3SynthNonFm3Tests, GEN3_SYNTH_NONFM3_CASE_COUNT } from './gen3/ge
 import { runRoutingRoundTripTests, ROUTING_ROUNDTRIP_CASE_COUNT } from './gen3/fm3/routing-roundtrip.test.js';
 import { runCabIrSyxTests, CAB_IR_SYX_CASE_COUNT } from './gen3/fm3/cab-ir-syx.test.js';
 import { runCabSlotStateTests, CAB_SLOT_STATE_CASE_COUNT } from './gen3/fm3/cab-slot-state.test.js';
+import { runPerformPageTests, PERFORM_PAGE_CASE_COUNT } from './gen3/fm3/perform-page.test.js';
 import { runConvertGridEidTests, CONVERT_GRID_EID_CASE_COUNT } from './convert/grid-eid.test.js';
 import { runCrossBlockParamsTests, CROSS_BLOCKPARAMS_CASE_COUNT } from './gen3/modern-family/blockparams-cross.test.js';
 import { runFm3TelemetryTests, FM3_TELEMETRY_CASE_COUNT } from './gen3/fm3/telemetry.test.js';
@@ -164,6 +165,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   { name: `fm3/routing-roundtrip (${ROUTING_ROUNDTRIP_CASE_COUNT} grid route-flag cases)`, run: runRoutingRoundTripTests },
   { name: `fm3/cab-ir-syx (${CAB_IR_SYX_CASE_COUNT} user-cab IR container cases)`, run: runCabIrSyxTests },
   { name: `fm3/cab-slot-state (${CAB_SLOT_STATE_CASE_COUNT} per-slot cab state cases)`, run: runCabSlotStateTests },
+  { name: `fm3/perform-page (${PERFORM_PAGE_CASE_COUNT} per-preset perform page cases)`, run: runPerformPageTests },
   { name: `modern-family/blockparams-cross (${CROSS_BLOCKPARAMS_CASE_COUNT} cross-device preset goldens)`, run: runCrossBlockParamsTests },
   { name: `gen3/default-raw-roundtrip (${DEFAULT_RAW_ROUNDTRIP_CASE_COUNT} models: FM3/FM9/III)`, run: runDefaultRawRoundTripTests },
   { name: `fm3/telemetry (${FM3_TELEMETRY_CASE_COUNT} live-FM3 frame goldens)`, run: runFm3TelemetryTests },
