@@ -8,7 +8,7 @@
 // (40 bytes of ASCII), so the name decode is anchored to observed data rather than to the parser's
 // own inverse.
 import { fractalChecksum } from '../../../src/shared/checksum.js';
-import { pack5Septet32 } from '../../../src/gen3/axe-fx-iii/setParam.js';
+import { pack5Septet32, unpack5Septet32 } from '../../../src/gen3/axe-fx-iii/setParam.js';
 import {
   parseCabIrSyx,
   buildCabIrSyx,
@@ -19,6 +19,8 @@ import {
   cabIrUserSlot,
   cabIrScratchpad,
   interpretCabIrAcks,
+  computeCabIrClosePayload,
+  cabIrContentXor,
   CAB_IR_FN_START,
   CAB_IR_FN_DATA,
   CAB_IR_FN_END,
@@ -60,11 +62,14 @@ function synthIr(opts: { nameChunks?: readonly (readonly number[])[]; sampleValu
     const slice = chunks.slice(f * CAB_IR_CHUNKS_PER_FRAME * 5, (f + 1) * CAB_IR_CHUNKS_PER_FRAME * 5);
     frames.push(...frame(CAB_IR_FN_DATA, [0x00, 0x02, ...slice]));
   }
-  frames.push(...frame(CAB_IR_FN_END, [0x4d, 0x12, 0x08, 0x5d, 0x03]));
+  // The close frame is a CHECKSUM over the chunk words (measured), so a synthetic container must carry
+  // the value its own content requires — a hardcoded/stale one models a container the device DISCARDS.
+  const closePayload = computeCabIrClosePayload(frames);
+  frames.push(...frame(CAB_IR_FN_END, closePayload));
   return frames;
 }
 
-export const CAB_IR_SYX_CASE_COUNT = 19;
+export const CAB_IR_SYX_CASE_COUNT = 20;
 
 /** Runs every case, then throws ONE combined error naming each failure (runner convention: `[suite]` prefix). */
 export function runCabIrSyxTests(): void {
@@ -106,10 +111,81 @@ export function runCabIrSyxTests(): void {
     eq(ir.dataPrefixes.length, 8, 'data frames');
   });
 
-  t('start/end payloads are carried verbatim', () => {
-    const ir = parseCabIrSyx(synthIr());
+  t('the start payload is carried verbatim and the end payload is the content checksum', () => {
+    const bytes = synthIr();
+    const ir = parseCabIrSyx(bytes);
     eq(ir.startPayload, [0x7f, 0x7f, 0x00, 0x10], 'start payload');
-    eq(ir.endPayload, [0x4d, 0x12, 0x08, 0x5d, 0x03], 'end payload (the unverified value)');
+    // NOT a constant: the close frame is the checksum over the chunk words, so it is derived, not carried
+    eq(ir.endPayload, computeCabIrClosePayload(bytes), 'end payload == the container\'s content checksum');
+    eq(cabIrContentXor(bytes), 3345682754, 'and the synthetic content hashes to a known value (0xC76B1142)');
+  });
+
+  // ── the 0x7C close payload is a CHECKSUM (MEASURED 2026-10-08, 11 independent containers) ────
+  // Across the FM3 specimen, two Axe-Fx II XL+ uploads, seven more Axe-Change cabs (Axe-Fx II /
+  // XL+ / III, spanning BOTH the 66×32-chunk and the 10×256-chunk frame geometries) and the
+  // axeiiloader `empty_ir` asset, every 0x7C payload equals the XOR of ALL 2048 32-bit chunk
+  // words — the 8 NAME chunks INCLUDED — re-encoded as five LSB-first septets (equivalently, the
+  // byte-wise XOR of the five septet columns). SUM, CRC-32, CRC-32c, Adler-32, FNV-1a, DJB2 of
+  // the same data, a 4-byte-prefix-only reading, and length/size readings were all FALSIFIED on
+  // the corpus. The last payload byte is the top septet of that same 32-bit field (always ≤ 0x0f,
+  // and it tracks the XOR), not a separate flag/count.
+  t('MEASURED: the 0x7C close payload is the XOR of every 32-bit chunk word (name included)', () => {
+    const chunkXor = (chunks: readonly (readonly number[])[]): number => {
+      let x = 0;
+      for (const c of chunks) x = (x ^ unpack5Septet32(c[0]!, c[1]!, c[2]!, c[3]!, c[4]!)) >>> 0;
+      return x;
+    };
+    const chunksOf = (ir: ReturnType<typeof parseCabIrSyx>): number[][] => {
+      const out: number[][] = [];
+      for (let f = 1; f < ir.frames.length - 1; f++) {
+        const body = ir.frames[f]!.slice(8, -2); // past header+fn and the 2-byte prefix, before cs+F7
+        for (let k = 0; k + 5 <= body.length; k += 5) out.push(body.slice(k, k + 5));
+      }
+      return out;
+    };
+
+    // the specimen's two MEASURED anchors — its commercial sample payload is deliberately absent
+    const SPECIMEN_CLOSE = [0x4d, 0x12, 0x08, 0x5d, 0x03];
+    const nameXor = chunkXor(SPECIMEN_NAME_CHUNKS);
+    eq(nameXor, 0xbd7a7442, "XOR of the specimen's real 8 name chunks");
+    const closeVal = unpack5Septet32(0x4d, 0x12, 0x08, 0x5d, 0x03);
+    eq(closeVal, 0x3ba2094d, "the specimen's close payload decoded");
+    const sampleXor = (closeVal ^ nameXor) >>> 0;
+    eq(sampleXor, 0x86d87d0f, "the specimen's sample-word XOR (= close ^ nameXor)");
+
+    // reconstruct a container whose chunk XOR reproduces the specimen exactly: its real name
+    // chunks + sample words chosen so their XOR equals the specimen's measured sample XOR
+    const chunkBytes: number[] = [];
+    for (const c of SPECIMEN_NAME_CHUNKS) chunkBytes.push(...c);
+    for (let i = 0; i < CAB_IR_SAMPLE_SLOTS; i++) chunkBytes.push(...pack5Septet32(i === 0 ? sampleXor : 0));
+    const bytes: number[] = [];
+    bytes.push(...frame(CAB_IR_FN_START, [0x7f, 0x7f, 0x00, 0x10]));
+    for (let f = 0; f < 8; f++) {
+      bytes.push(...frame(CAB_IR_FN_DATA, [0x00, 0x02, ...chunkBytes.slice(f * CAB_IR_CHUNKS_PER_FRAME * 5, (f + 1) * CAB_IR_CHUNKS_PER_FRAME * 5)]));
+    }
+    bytes.push(...frame(CAB_IR_FN_END, SPECIMEN_CLOSE));
+
+    const ir = parseCabIrSyx(bytes);
+    eq(ir.endPayload, SPECIMEN_CLOSE, 'carried close payload');
+    eq(chunkXor(chunksOf(ir)), closeVal, 'recomputed close == the specimen value');
+
+    // the last close byte is the TOP septet of the same field, not a separate flag/count
+    eq(SPECIMEN_CLOSE[4], (closeVal >>> 28) & 0x7f, 'last byte is the 32-bit top septet');
+
+    // falsify the obvious alternative: a SUM over the same words is NOT the close
+    let sum = 0;
+    for (const c of chunksOf(ir)) sum = (sum + unpack5Septet32(c[0]!, c[1]!, c[2]!, c[3]!, c[4]!)) >>> 0;
+    ok(sum !== closeVal, 'the word SUM is not the close (XOR is)');
+
+    // a rename CHANGES the required close — carrying it verbatim is a checksum mismatch
+    const renamed = parseCabIrSyx(renameCabIrSyx(bytes, 'LYKOS-TEST-1'));
+    const renamedXor = chunkXor(chunksOf(renamed));
+    eq(renamedXor, 0x1dca7d63, 'required close after the LYKOS-TEST-1 rename');
+    ok(renamedXor !== closeVal, 'a rename moves the required close off the specimen value');
+    // buildCabIrSyx now RECOMPUTES the close for any edit (measured: a stale value makes the unit
+    // discard the upload with close-ack 0x13), so the renamed container must carry the new value.
+    eq(renamed.endPayload, pack5Septet32(renamedXor), 'the rename carries the recomputed close');
+    ok(renamed.endPayload.join(',') !== SPECIMEN_CLOSE.join(','), 'and it is no longer the specimen value');
   });
 
   // ── replay ──────────────────────────────────────────────────────────────────────────────────
@@ -127,7 +203,8 @@ export function runCabIrSyxTests(): void {
     const ir = parseCabIrSyx(renamed);
     const src = parseCabIrSyx(bytes);
     eq(ir.sampleSlots, src.sampleSlots, 'sample slots unchanged');
-    eq(ir.endPayload, src.endPayload, 'end payload untouched (never recomputed)');
+    eq(ir.endPayload, computeCabIrClosePayload(renamed), 'the close is recomputed for the new name');
+    ok(ir.endPayload.join(',') !== src.endPayload.join(','), 'and it differs from the source close');
     eq(ir.frames.length, src.frames.length, 'frame count unchanged');
     eq(ir.frames[0], src.frames[0], 'start frame untouched');
     // the sample region of frame 1 and all of frames 2..8 must be identical

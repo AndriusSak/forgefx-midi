@@ -147,6 +147,8 @@ export {
   cabIrUserSlot,
   cabIrScratchpad,
   interpretCabIrAcks,
+  cabIrContentXor,
+  computeCabIrClosePayload,
   CAB_IR_FN_START,
   CAB_IR_FN_DATA,
   CAB_IR_FN_END,
@@ -170,7 +172,7 @@ export type { CabIrSyx, CabIrDestination, CabIrUploadAcks } from './cabIrSyx.js'
 export {
   buildCabSlotQuery,
   parseCabSlotState,
-  cabSlotContentMatches,
+  cabSlotNameMatches,
   CAB_SLOT_FN,
   CAB_SLOT_SUB,
   CAB_SLOT_QUERY_LEN,

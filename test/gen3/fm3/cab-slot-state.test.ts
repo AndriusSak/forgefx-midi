@@ -9,7 +9,7 @@ import { fractalChecksum } from '../../../src/shared/checksum.js';
 import {
   buildCabSlotQuery,
   parseCabSlotState,
-  cabSlotContentMatches,
+  cabSlotNameMatches,
   cabIrUserSlot,
   cabIrScratchpad,
   CAB_SLOT_FN,
@@ -124,8 +124,8 @@ export function runCabSlotStateTests(): void {
   // 6 — the content region is the measured 15 bytes, and NOTHING else
   t('the content region is exactly payload[15..29]', () => {
     const s = parseCabSlotState(REP_USER1, 0, 0x10)!;
-    eq(s.contentRegion.length, CAB_SLOT_REGION_LEN, 'region length');
-    eq(s.contentRegion, payloadOf(REP_USER1).slice(15, 30), 'region slice');
+    eq(s.nameRegion.length, CAB_SLOT_REGION_LEN, 'region length');
+    eq(s.nameRegion, payloadOf(REP_USER1).slice(15, 30), 'region slice');
   });
 
   // 7 — the volatile bytes are reported separately and are NOT in the region
@@ -141,8 +141,8 @@ export function runCabSlotStateTests(): void {
     const a = parseCabSlotState(REP_USER1, 0, 0x10)!;
     const b = parseCabSlotState(REP_USER13, 12, 0x10)!;
     const e = parseCabSlotState(REP_EMPTY, 13, 0x10)!;
-    eq(cabSlotContentMatches(a, b), true, 'slot 1 vs the fresh upload to slot 13');
-    eq(cabSlotContentMatches(a, e), false, 'slot 1 vs an empty slot');
+    eq(cabSlotNameMatches(a, b), true, 'slot 1 vs the fresh upload to slot 13');
+    eq(cabSlotNameMatches(a, e), false, 'slot 1 vs an empty slot');
   });
 
   // 9 — the reply does NOT echo the slot in a readable field: the caller's request is the identity
@@ -173,7 +173,7 @@ export function runCabSlotStateTests(): void {
   t('the content region does not decode to the slot name in any simple scheme', () => {
     // The slot holds "LT TV Mix 7" (its .syx name). Assert that the naive decodings do NOT yield it —
     // this is the guard against someone "improving" the parser into a name oracle without evidence.
-    const region = parseCabSlotState(REP_USER1, 0, 0x10)!.contentRegion;
+    const region = parseCabSlotState(REP_USER1, 0, 0x10)!.nameRegion;
     const ascii = region.map((x) => (x >= 32 && x < 127 ? String.fromCharCode(x) : '.')).join('');
     ok(!ascii.includes('LT TV'), `plain 7-bit must not produce the name, got ${JSON.stringify(ascii)}`);
     let sept = '';

@@ -15,9 +15,15 @@
  *
  * Reply (60 bytes, `fn=0x01 sub=0x4B`, payload = `frame[6:-2]`, 52 bytes):
  *   • payload[6]  = 0x01 POPULATED / 0x7F EMPTY — the flag that makes this useful;
- *   • payload[15..29] = a CONTENT-DERIVED region: slots holding the same IR share it byte for byte
- *     (measured: U0001, U0012 and a fresh upload to U0013 all identical), while every empty slot in
- *     every bank — 500 user slots and all 16 scratchpad slots — shares ONE identical payload;
+ *   • payload[15..29] = a NAME-DERIVED region. MEASURED 2026-10-08, and the mechanism is the NAME, not
+ *     the samples: three slots holding the same name with wildly different sample data (a real IR, an
+ *     all-zero sample set, and a one-byte spike) share the region byte for byte, while the SAME samples
+ *     under a renamed container give a DIFFERENT region. So it confirms a RENAME (the region moves) but
+ *     cannot distinguish two IRs that share a name. The encoding is undecoded — it is a fingerprint, not
+ *     the name itself;
+ *   • every empty slot in every bank (500 user + 16 scratchpad) shares ONE payload — but that EMPTY
+ *     payload is NOT stable across sessions: the same slots read `…3e 00 1e 04 03 38…` in the morning and
+ *     `…3e 00 0d 26 70…` hours later. Treat the empty value as unstable and never build on its bytes;
  *   • payload[28..29] are VOLATILE — they differed between the capture and a later live read of the
  *     same slot, so they are reported separately and never treated as content;
  *   • the encoding of the region is NOT decoded. It is not a name: no 4-per-5-septet, 8-per-7 or
@@ -76,8 +82,9 @@ export interface CabSlotState {
   populated: boolean | null;
   /** The raw flag byte, so a `null` reading is still inspectable. */
   flag: number;
-  /** The content-derived region (15 bytes). NOT a name; NOT decoded. */
-  contentRegion: number[];
+  /** The NAME-derived region (15 bytes) — it moves with the slot's NAME, not its samples, and it is a
+   *  fingerprint, not the name. Undecoded encoding; identical for two slots that share a name. */
+  nameRegion: number[];
   /** The volatile bytes (payload[28..29]) — reported, never part of the region. */
   volatileBytes: number[];
   /** The whole 52-byte reply payload, verbatim. */
@@ -101,13 +108,13 @@ export function parseCabSlotState(frame: readonly number[] | Uint8Array, index: 
     page,
     populated: flag === CAB_SLOT_POPULATED ? true : flag === CAB_SLOT_EMPTY ? false : null,
     flag,
-    contentRegion: payload.slice(CAB_SLOT_REGION_START, CAB_SLOT_REGION_START + CAB_SLOT_REGION_LEN),
+    nameRegion: payload.slice(CAB_SLOT_REGION_START, CAB_SLOT_REGION_START + CAB_SLOT_REGION_LEN),
     volatileBytes: CAB_SLOT_VOLATILE_OFFSETS.map((o) => payload[o]!).filter((v) => v !== undefined),
     raw: payload,
   };
 }
 
 /** True when two slots' content regions match — the comparison an upload confirmation makes. */
-export function cabSlotContentMatches(a: CabSlotState, b: CabSlotState): boolean {
-  return a.contentRegion.length === b.contentRegion.length && a.contentRegion.every((v, i) => v === b.contentRegion[i]);
+export function cabSlotNameMatches(a: CabSlotState, b: CabSlotState): boolean {
+  return a.nameRegion.length === b.nameRegion.length && a.nameRegion.every((v, i) => v === b.nameRegion[i]);
 }

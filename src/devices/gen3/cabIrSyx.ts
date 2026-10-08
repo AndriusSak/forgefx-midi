@@ -386,21 +386,76 @@ export function parseCabIrSyx(input: readonly number[] | Uint8Array): CabIrSyx {
 }
 
 /**
+ * The container's content checksum — the value the close frame (`0x7C`) carries.
+ *
+ * **MEASURED AND INDEPENDENTLY REPRODUCED (2026-10-08):** it is the XOR of every decoded 32-bit chunk
+ * word of the data frames — the 8 NAME chunks INCLUDED plus the sample chunks (2048 words on both
+ * measured geometries). Verified against 11 independent containers spanning four model bytes
+ * (`0x03`, `0x07`, `0x10`, `0x11`) and both geometries (66-frame 32-chunk and 10-frame 256-chunk), each
+ * one reproduced byte for byte by two independent implementations.
+ *
+ * The device VALIDATES it: a container whose close value does not match its content draws close-frame
+ * ack `0x13` and is **DISCARDED** — every frame is still acknowledged and the destination slot is left
+ * untouched (four controlled arms, see `CAB_IR_CLOSE_MISMATCH`). So this must be RECOMPUTED for any
+ * change to the name or the samples; carrying a stale value silently no-ops the upload.
+ *
+ * Falsified on the way (do not re-try): a sum, CRC-32/CRC-32c, Adler-32, FNV-1a, DJB2, a length field,
+ * an opaque constant, samples-only coverage, and the last byte being a separate flag — it is the top
+ * septet of the same 32-bit value.
+ */
+export function cabIrContentXor(bytes: readonly number[] | Uint8Array): number {
+  const b = [...bytes];
+  const frames: number[][] = [];
+  for (let i = 0; i + 1 < b.length; i++) {
+    if (b[i] !== SYSEX_START) continue;
+    const end = b.indexOf(SYSEX_END, i);
+    if (end < 0) break;
+    frames.push(b.slice(i, end + 1));
+    i = end;
+  }
+  let xor = 0;
+  for (const f of frames) {
+    if (f[5] !== CAB_IR_FN_DATA) continue;
+    const chunkBytes = framePayload(f).slice(2); // drop the per-geometry 2-byte prefix (00 02 / 20 00)
+    for (let i = 0; i + 5 <= chunkBytes.length; i += 5) {
+      const w = (chunkBytes[i]! | (chunkBytes[i + 1]! << 7) | (chunkBytes[i + 2]! << 14) | (chunkBytes[i + 3]! << 21) | (chunkBytes[i + 4]! << 28)) >>> 0;
+      xor = (xor ^ w) >>> 0;
+    }
+  }
+  return xor >>> 0;
+}
+
+/** The 5-septet close payload for a container's content — `pack5Septet32(cabIrContentXor(...))`. */
+export function computeCabIrClosePayload(bytes: readonly number[] | Uint8Array): number[] {
+  return pack5Septet32(cabIrContentXor(bytes));
+}
+
+/** Rewrite a container's close frame to the value its content requires (and re-fix its frame checksum). */
+function fixCloseFrame(frames: number[][]): void {
+  const last = frames[frames.length - 1]!;
+  if (last[5] !== CAB_IR_FN_END) return;
+  const payload = computeCabIrClosePayload(frames.flat());
+  frames[frames.length - 1] = [...last.slice(0, 6), ...payload, last[last.length - 2]!, SYSEX_END];
+  fixFrameChecksum(frames[frames.length - 1]!);
+}
+
+/**
  * Re-emit the container as wire bytes.
  *
- * Default (no options): **byte-identical replay** — the frames go back out exactly as they came in,
- * checksums included, because the sample payload and the 0x7C value are unverified and must not be
- * touched.
+ * Default (no options): a **verbatim replay**, except that the close frame is recomputed — which is a
+ * no-op for an untouched container (the rule reproduces the file's own value) and a fix for any edit.
  *
- * `name`: rewrite the 32 name slots, preserving every slot's flag bit, and re-fix the affected
- * frame checksums. The 0x7C value is left verbatim — whether it covers the name is UNVERIFIED, and
- * the device's answer on the load test is what settles it.
+ * `name`: rewrite the 32 name slots, preserving every slot's flag bit, and recompute the close value.
+ * The name's 8 chunks feed the checksum, so carrying the original close after a rename was a guaranteed
+ * mismatch — which is exactly what the device answered `0x13` to, and why the rename never landed.
  *
- * `startPayload`: replace the 0x7A payload wholesale (the retarget experiment).
+ * `startPayload`: replace the 0x7A payload wholesale (the retarget experiment). It does not affect the
+ * close value: the checksum covers the DATA frames' words only, which is why the destination field can
+ * be written freely.
  */
 export function buildCabIrSyx(
   ir: CabIrSyx,
-  opts: { name?: string; startPayload?: readonly number[]; dest?: CabIrDestination | null } = {},
+  opts: { name?: string; startPayload?: readonly number[]; dest?: CabIrDestination | null; recomputeClose?: boolean } = {},
 ): number[] {
   const frames = ir.frames.map((f) => [...f]);
 
@@ -440,10 +495,16 @@ export function buildCabIrSyx(
     fixFrameChecksum(frames[1]!);
   }
 
+  // The close frame is a checksum over the data frames' words, so it must follow any edit. Recomputing
+  // is a NO-OP for an untouched container (the rule reproduces the file's own value — verified), so it
+  // is on by default rather than a special case; `recomputeClose: false` exists only to send a
+  // deliberately stale value and MEASURE the device's response.
+  if (opts.recomputeClose !== false) fixCloseFrame(frames);
+
   return frames.flat();
 }
 
-/** Convenience: replay bytes with a new name (flag bits preserved). */
+/** Convenience: replay bytes with a new name (flag bits preserved, close value recomputed). */
 export function renameCabIrSyx(bytes: readonly number[] | Uint8Array, name: string): number[] {
   return buildCabIrSyx(parseCabIrSyx(bytes), { name });
 }
