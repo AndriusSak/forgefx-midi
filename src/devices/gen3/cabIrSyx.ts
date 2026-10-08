@@ -109,6 +109,26 @@ export const CAB_IR_SAMPLE_SLOTS = 2040;
 export const CAB_IR_TARGET_UNSPECIFIED = 0x3fff;
 
 /**
+ * The close frame's (`0x7C`) reply codes — MEASURED, and they are not decoration: they decide whether
+ * the unit KEPT the upload.
+ *
+ * Four controlled arms on fw 13.0 (2026-10-08), each uploading to an EMPTY user slot so "was it stored"
+ * is observable:
+ *   • verbatim container                      → close answered `0x00` → the slot became POPULATED;
+ *   • name rewritten, close carried verbatim  → `0x13` → the slot STAYED EMPTY;
+ *   • samples zeroed (and a one-byte spike)   → `0x13` → the slot STAYED EMPTY;
+ *   • close value mutated, content unchanged  → `0x13` → the slot STAYED EMPTY.
+ * So `0x00` = the container's close value MATCHES its content and the upload is stored, and `0x13` =
+ * mismatch → the whole upload is DISCARDED and the destination is left untouched.
+ *
+ * Consequence, and the reason this constant matters: the close value is content-bound, so ANY change to
+ * a container (a rename, converted samples, a zeroed "delete") needs it RECOMPUTED. Its encoding is not
+ * decoded. A caller that reads only the frame acks will believe an upload the device threw away.
+ */
+export const CAB_IR_CLOSE_ACCEPTED = 0x00;
+export const CAB_IR_CLOSE_MISMATCH = 0x13;
+
+/**
  * A user-cab destination as the editor writes it into the 0x7A start payload: `[index, page]` (MEASURED
  * — see the module header). Pages `0x10`–`0x13` are the 512 user banks (128 slots each); page `0x20` is
  * the 16 scratchpad memories.
