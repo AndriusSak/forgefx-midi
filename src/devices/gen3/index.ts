@@ -33,6 +33,9 @@ export {
   computeRawPatchXor,
   crc16ccitt,
   huffmanUncompress,
+  huffmanCompress,
+  encode16to3,
+  reencodeRawPatch,
 } from './presetHuffman.js';
 export type { DecodedRawPatch } from './presetHuffman.js';
 
@@ -202,3 +205,7 @@ export {
   PERFORM_RECORD_STRIDE,
 } from './performPage.js';
 export type { PerformPage, PerformSlot } from './performPage.js';
+
+// The preset-AUTHOR path, re-exported so a consumer can rebuild a dump from a patched body without
+// reaching into a deep subpath (`reencodeRawPatch` recompresses, `reencodeDumpFromRawPatch` reframes+CRCs).
+export { reframeRawPatch, reencodeDumpFromRawPatch } from './presetAuthor.js';
