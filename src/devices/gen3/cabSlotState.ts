@@ -61,6 +61,31 @@ export const CAB_SLOT_POPULATED = 0x01;
 export const CAB_SLOT_EMPTY = 0x7f;
 
 /**
+ * The implemented per-slot sub-actions on `fn=0x01` — MEASURED by a bounded read-shaped sweep
+ * (2026-10-08). NONE of them is a slot-data read, and none carries a readable name.
+ *
+ *   • `0x4B` — the slot-state query this module implements (populated flag + name-derived region);
+ *   • `0x4A`, `0x4E` — answered, but the reply is IDENTICAL for every slot including empty ones, so
+ *     they carry no per-slot datum (a bank-level value returned per query, or a constant). Undecoded;
+ *   • `0x4C` — answered and VARIES per slot; meaning undecoded, and no readable text is in it;
+ *   • `0x4D` — answered, 33 bytes, IDENTICAL across slots. Undecoded.
+ *
+ * Also measured: the `0x4B` payload is 52 bytes and its content EXTENDS PAST the 15-byte region (bytes
+ * at offset 30+ changed between sessions). The region is what this module models; the rest is undecoded
+ * device state and must not be interpreted.
+ */
+export const CAB_SLOT_FN_SUBACTIONS: Readonly<Record<number, string>> = {
+  0x4a: 'answered; identical across slots — no per-slot datum (undecoded)',
+  0x4b: 'slot state: populated flag + name-derived region (implemented here)',
+  0x4c: 'answered; varies per slot (undecoded)',
+  0x4d: 'answered; 33 bytes, identical across slots (undecoded)',
+  0x4e: 'answered; identical across slots — no per-slot datum (undecoded)',
+};
+
+/** Payload length of a `0x4B` reply. The modelled region ends well before this. */
+export const CAB_SLOT_REPLY_PAYLOAD_LEN = 52;
+
+/**
  * Build the per-slot state query for one `[index, page]` destination.
  *
  * Byte 12/13 carry the destination so this works for a user slot (`cabIrUserSlot(n)`) or a scratchpad

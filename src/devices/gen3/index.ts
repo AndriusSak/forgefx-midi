@@ -177,6 +177,8 @@ export {
   parseCabSlotState,
   cabSlotNameMatches,
   CAB_SLOT_FN,
+  CAB_SLOT_FN_SUBACTIONS,
+  CAB_SLOT_REPLY_PAYLOAD_LEN,
   CAB_SLOT_SUB,
   CAB_SLOT_QUERY_LEN,
   CAB_SLOT_REPLY_LEN,
