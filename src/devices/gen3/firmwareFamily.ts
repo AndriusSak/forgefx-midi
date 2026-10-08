@@ -16,10 +16,16 @@
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * Function bytes in the firmware-update family. `0x79` is included because it is refused as a read on fw 13
- * and sits in the same neighbourhood; treat the whole family as off-limits.
+ * Function bytes in the firmware-update family — the three whose refusals carry IMAGE codes.
+ *
+ * CORRECTED 2026-10-08: `0x79` was in this list as a precaution ("refused as a read, sits in the same
+ * neighbourhood"). It is not firmware: `0x79` is the PRESET-DUMP FOOTER — the device sends it to end a
+ * 0x77/0x78/0x79 preset dump, and the driver matches on it as the terminator. Including it would have made
+ * the guard refuse a legitimate preset write. Removing it is evidence-driven, not a relaxation: the three
+ * that remain are the ones that answered with image codes (`0x11` image size incorrect, `0x14` buffer
+ * overrun) and the family that put a unit in its bootloader.
  */
-export const FIRMWARE_FAMILY_FNS: readonly number[] = [0x79, 0x7d, 0x7e, 0x7f];
+export const FIRMWARE_FAMILY_FNS: readonly number[] = [0x7d, 0x7e, 0x7f];
 
 /** True for a function byte in the firmware-update family (see FIRMWARE_FAMILY_FNS). */
 export function isFirmwareFamilyFn(fn: number): boolean {
