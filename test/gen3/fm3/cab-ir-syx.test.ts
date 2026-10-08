@@ -14,6 +14,11 @@ import {
   buildCabIrSyx,
   renameCabIrSyx,
   retargetCabIrStart,
+  buildCabIrStartPayload,
+  cabIrStartDestination,
+  cabIrUserSlot,
+  cabIrScratchpad,
+  interpretCabIrAcks,
   CAB_IR_FN_START,
   CAB_IR_FN_DATA,
   CAB_IR_FN_END,
@@ -59,7 +64,7 @@ function synthIr(opts: { nameChunks?: readonly (readonly number[])[]; sampleValu
   return frames;
 }
 
-export const CAB_IR_SYX_CASE_COUNT = 14;
+export const CAB_IR_SYX_CASE_COUNT = 19;
 
 /** Runs every case, then throws ONE combined error naming each failure (runner convention: `[suite]` prefix). */
 export function runCabIrSyxTests(): void {
@@ -221,6 +226,63 @@ export function runCabIrSyxTests(): void {
       threw = (e as Error).message;
     }
     ok(/out of 14-bit range/.test(threw), `expected a range refusal, got: ${threw || '(no throw)'}`);
+  });
+
+  // ── the CAPTURED destination field (editor's own upload, 2026-10-08) ─────────────────────────
+  t('user slot destinations encode exactly as the capture shows', () => {
+    // the capture's two uploads targeted `00 10 00 10` and `0b 10 00 10`
+    eq(buildCabIrStartPayload(cabIrUserSlot(1)), [0x00, 0x10, 0x00, 0x10], 'user slot 1');
+    eq(buildCabIrStartPayload(cabIrUserSlot(12)), [0x0b, 0x10, 0x00, 0x10], 'user slot 12 (the capture\'s second target)');
+    eq(cabIrUserSlot(129), { index: 0, page: 0x11 }, 'user slot 129 opens the second bank');
+    eq(cabIrUserSlot(512), { index: 127, page: 0x13 }, 'user slot 512 is the last of the fourth bank');
+    eq(buildCabIrStartPayload(cabIrScratchpad(1)), [0x00, 0x20, 0x00, 0x10], 'scratchpad 1 encodes on page 0x20');
+  });
+
+  t('the destination reads back out of a start payload, and the export sentinel reads as null', () => {
+    eq(cabIrStartDestination(buildCabIrStartPayload(cabIrUserSlot(7))), { index: 6, page: 0x10 }, 'round trip');
+    eq(cabIrStartDestination([0x7f, 0x7f, 0x00, 0x10]), null, 'the export sentinel is "no destination"');
+  });
+
+  t('buildCabIrSyx with a destination rewrites ONLY the start frame', () => {
+    const bytes = synthIr();
+    const dest = cabIrUserSlot(12);
+    const out = buildCabIrSyx(parseCabIrSyx(bytes), { dest });
+    const before = parseCabIrSyx(bytes);
+    const after = parseCabIrSyx(out); // parsing re-validates every checksum
+    eq(after.startPayload, [0x0b, 0x10, 0x00, 0x10], 'start payload');
+    eq(out.length, bytes.length, 'the stream length is unchanged');
+    const changed = after.frames.map((f, i) => (f.join(',') === before.frames[i]!.join(',') ? null : i)).filter((x) => x !== null);
+    eq(changed, [0], 'only the start frame changes');
+  });
+
+  t('destination helpers refuse out-of-range slots and non-7-bit bytes', () => {
+    const msg = (fn: () => void) => {
+      try {
+        fn();
+        return '';
+      } catch (e) {
+        return (e as Error).message;
+      }
+    };
+    ok(/out of range \(1..512\)/.test(msg(() => cabIrUserSlot(0))), 'user slot 0 refused');
+    ok(/out of range \(1..512\)/.test(msg(() => cabIrUserSlot(513))), 'user slot 513 refused');
+    ok(/out of range \(1..16\)/.test(msg(() => cabIrScratchpad(17))), 'scratchpad 17 refused');
+    ok(/out of range \(0..127\)/.test(msg(() => buildCabIrStartPayload({ index: 128, page: 0x10 }))), 'index beyond a page refused');
+  });
+
+  t('interpretCabIrAcks requires EVERY expected frame, and dedupes the raw codes', () => {
+    const ack = (fn: number, code: number) => [0xf0, 0x00, 0x01, 0x74, MODEL_FM3, 0x64, fn, code, fn & 0x0f, 0xf7];
+    const full = [ack(0x7a, 0x00), ...Array.from({ length: 8 }, () => ack(0x7b, 0x00)), ack(0x7c, 0x00)];
+    const r1 = interpretCabIrAcks(full, 8);
+    eq(r1.complete, true, 'all acked → complete');
+    eq([r1.start, r1.data, r1.end], [true, 8, true], 'start/data/end reported');
+    eq(r1.codes.map((c) => `${c.fn}:${c.code}`), ['122:0', '123:0', '124:0'], 'distinct raw code pairs');
+    // one data ack missing → NOT complete (the device acked the editor's upload frame by frame)
+    const short = [ack(0x7a, 0x00), ...Array.from({ length: 7 }, () => ack(0x7b, 0x00)), ack(0x7c, 0x00)];
+    eq(interpretCabIrAcks(short, 8).complete, false, 'a missing data ack is not complete');
+    // no replies at all → nothing is claimed
+    const none = interpretCabIrAcks([], 8);
+    eq([none.complete, none.start, none.data, none.end], [false, false, 0, false], 'silence claims nothing');
   });
 
   if (failures.length) {

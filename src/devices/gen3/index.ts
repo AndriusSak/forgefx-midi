@@ -142,6 +142,11 @@ export {
   buildCabIrSyx,
   renameCabIrSyx,
   retargetCabIrStart,
+  buildCabIrStartPayload,
+  cabIrStartDestination,
+  cabIrUserSlot,
+  cabIrScratchpad,
+  interpretCabIrAcks,
   CAB_IR_FN_START,
   CAB_IR_FN_DATA,
   CAB_IR_FN_END,
@@ -150,5 +155,9 @@ export {
   CAB_IR_CHUNKS_PER_FRAME,
   CAB_IR_SAMPLE_SLOTS,
   CAB_IR_TARGET_UNSPECIFIED,
+  CAB_IR_PAGE_USER_BANKS,
+  CAB_IR_PAGE_SCRATCHPAD,
+  CAB_IR_DEST_NONE,
+  CAB_IR_START_TAIL,
 } from './cabIrSyx.js';
-export type { CabIrSyx } from './cabIrSyx.js';
+export type { CabIrSyx, CabIrDestination, CabIrUploadAcks } from './cabIrSyx.js';

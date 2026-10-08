@@ -59,17 +59,37 @@
  *   documented as unverified, and NEVER recomputed — a name-only edit leaves it untouched, and the
  *   device is the judge of whether that is enough.
  *
- *   The 0x7A payload's first two bytes are `7F 7F` — the same 14-bit "no explicit target" sentinel
- *   the preset-dump header uses for the edit buffer. Whether a concrete user-cab slot belongs there,
- *   and in which septet order, is **UNVERIFIED**: one specimen cannot separate the orders because
- *   0x3FFF is symmetric. `retargetCabIrStart()` exists for that experiment and defaults to the
- *   sibling preset-dump convention (MSB-first). **The default upload path replays the file
- *   verbatim** — it does not retarget.
+ *   The 0x7A payload's first two bytes are `7F 7F` in an EXPORT (the "no destination" sentinel). They
+ *   are NOT opaque: the capture above shows the editor writing a real `[index, page]` pair there, so
+ *   `buildCabIrStartPayload()` builds that field from a destination and `cabIrStartDestination()` reads
+ *   it back. (`retargetCabIrStart()` predates the capture and guessed MSB-first 14-bit ordering; it is
+ *   kept only for the historical record — use the destination helpers.)
+ *
+ * ─── THE UPLOAD SEQUENCE (CAPTURED 2026-10-08, FM3-Edit 1.07.16 → FM3 fw 13.0) ──────────
+ * A USBPcap capture of FM3-Edit actually loading an IR shows the editor sending EXACTLY this container —
+ * and it explains the refusal above:
+ *
+ *   host → 0x7A payload `00 10 00 10`   device → `64 7A 00 0A`   (start)
+ *   host → 0x7B payload `00 02` + 1280  device → `64 7B 00 0B`   ×8, BYTE-IDENTICAL to the .syx
+ *   host → 0x7C payload `4D 12 08 5D 03` device → `64 7C 00 0C`  (close)
+ *
+ * So the export's frames ARE the wire frames — 0x7A/0x7B/0x7C, 1290-byte data frames, unchanged — with
+ * ONE difference: **the start payload's first two bytes.** The editor sent `00 10`; the file carries
+ * `7F 7F`. The capture contains two uploads whose starts were `00 10 00 10` and `0B 10 00 10`, i.e. the
+ * first two bytes VARY with the destination and the last two (`00 10`) are constant. Read together with
+ *   the cab-catalogue read (`fn=0x01 sub=0x4B`, issued once per slot with the same `[index, page]` pair), the pair is **[index, page]**: page `0x10`–`0x13`
+ * are the 512 user banks (128 slots each) and `0x20` is the 16 scratchpad memories, so `00 10` = user
+ * slot 1 and `0B 10` = user slot 12 — and `7F 7F` in the export is the "no destination" sentinel an
+ * export naturally carries.
+ *
+ * Replaying the FILE's start frame therefore asked the unit for a destination of "none", which is what
+ * drew the refusal. A faithful replay must patch the destination (see `buildCabIrStartPayload`) — or send
+ * the file's frames with only that field changed.
  *
  * ─── WHAT THIS MODULE DOES NOT CLAIM ─────────────────────────────────────────────────────
- * It does not claim the FM3 ACCEPTS these frames (that is the load test's job, on hardware), it does
- * not claim the sample payload is understood, and it does not claim the 0x7A target encoding. Every
- * one of those is marked above rather than assumed.
+ * It does not claim the unit STORES the IR when it acknowledges the frames (the acks are the wire-side
+ * evidence the editor itself relies on, and nothing more), and it does not claim the sample payload is
+ * understood. Every one of those is marked above rather than assumed.
  */
 import { fractalChecksum } from '../../shared/checksum.js';
 import { pack5Septet32, unpack5Septet32 } from '../../gen3/axe-fx-iii/setParam.js';
@@ -87,6 +107,120 @@ export const CAB_IR_CHUNKS_PER_FRAME = 256;
 export const CAB_IR_SAMPLE_SLOTS = 2040;
 /** The 14-bit "no explicit target" sentinel seen in the specimen's start payload. */
 export const CAB_IR_TARGET_UNSPECIFIED = 0x3fff;
+
+/**
+ * A user-cab destination as the editor writes it into the 0x7A start payload: `[index, page]` (MEASURED
+ * — see the module header). Pages `0x10`–`0x13` are the 512 user banks (128 slots each); page `0x20` is
+ * the 16 scratchpad memories.
+ */
+export interface CabIrDestination {
+  /** Slot index within the page (0-based in the wire field; the 1-based helpers below take care of it). */
+  index: number;
+  page: number;
+}
+
+export const CAB_IR_PAGE_USER_BANKS: readonly number[] = [0x10, 0x11, 0x12, 0x13];
+export const CAB_IR_PAGE_SCRATCHPAD = 0x20;
+/** The bytes an export carries instead of a destination. */
+export const CAB_IR_DEST_NONE: Readonly<CabIrDestination> = { index: 0x7f, page: 0x7f };
+/** The two constant bytes that follow the destination in every observed start frame. */
+export const CAB_IR_START_TAIL: readonly number[] = [0x00, 0x10];
+
+/** Build the 0x7A start payload for a destination: `[index, page, 0x00, 0x10]` (MEASURED shape). */
+export function buildCabIrStartPayload(
+  dest: CabIrDestination | null,
+  tail: readonly number[] = CAB_IR_START_TAIL,
+): number[] {
+  const d = dest ?? CAB_IR_DEST_NONE;
+  if (!Number.isInteger(d.index) || d.index < 0 || d.index > 0x7f) {
+    throw new Error(`buildCabIrStartPayload: index ${d.index} out of range (0..127)`);
+  }
+  if (!Number.isInteger(d.page) || d.page < 0 || d.page > 0x7f) {
+    throw new Error(`buildCabIrStartPayload: page ${d.page} out of range (0..127)`);
+  }
+  const payload = [d.index, d.page, ...tail];
+  if (payload.some((b) => b < 0 || b > 0x7f)) throw new Error('buildCabIrStartPayload: payload must be 7-bit clean');
+  return payload;
+}
+
+/** Read the destination back out of a 0x7A payload; `null` when the frame carries the `7F 7F` sentinel. */
+export function cabIrStartDestination(startPayload: readonly number[]): CabIrDestination | null {
+  if (startPayload.length < 2) return null;
+  const d = { index: startPayload[0]!, page: startPayload[1]! };
+  if (d.index === CAB_IR_DEST_NONE.index && d.page === CAB_IR_DEST_NONE.page) return null;
+  return d;
+}
+
+/** A 1-based user-cab slot number (1..512) → its destination. */
+export function cabIrUserSlot(slot: number): CabIrDestination {
+  if (!Number.isInteger(slot) || slot < 1 || slot > 512) {
+    throw new Error(`cabIrUserSlot: slot ${slot} out of range (1..512)`);
+  }
+  const zero = slot - 1;
+  return { index: zero % 128, page: CAB_IR_PAGE_USER_BANKS[Math.floor(zero / 128)]! };
+}
+
+/** A 1-based scratchpad memory number (1..16) → its destination. */
+export function cabIrScratchpad(n: number): CabIrDestination {
+  if (!Number.isInteger(n) || n < 1 || n > 16) {
+    throw new Error(`cabIrScratchpad: scratchpad ${n} out of range (1..16)`);
+  }
+  return { index: n - 1, page: CAB_IR_PAGE_SCRATCHPAD };
+}
+
+/**
+ * What the device said back, frame by frame. Measured ack shapes (replies to the editor's own upload):
+ *
+ *   `F0 00 01 74 11 64 7A 00 0A F7`  → start acknowledged
+ *   `F0 00 01 74 11 64 7B 00 0B F7`  → one per data frame
+ *   `F0 00 01 74 11 64 7C 00 0C F7`  → close acknowledged
+ *
+ * The middle byte reads as a result code where `00` accompanies an accepted frame — but that label is
+ * NOT established (the result-code table this codebase carries is an assumed index→code mapping, and it
+ * disagrees with everything measured on this device). So this reports the raw bytes and only the
+ * structural facts, and `complete` means "every expected frame was acknowledged", nothing more.
+ */
+export interface CabIrUploadAcks {
+  /** Raw 0x64 reply frames, as received. */
+  frames: readonly (readonly number[])[];
+  /** True when a 0x64 echoing 0x7A arrived. */
+  start: boolean;
+  /** How many 0x64 replies echoed 0x7B. */
+  data: number;
+  /** True when a 0x64 echoing 0x7C arrived. */
+  end: boolean;
+  /** Data frames the stream contained — compare with `data` to see whether all were acknowledged. */
+  expectedData: number;
+  /** Every expected frame acknowledged. NOT a claim that the unit stored the IR. */
+  complete: boolean;
+  /** Distinct `[echoedFn, code]` pairs seen, for reporting. */
+  codes: readonly { fn: number; code: number }[];
+}
+
+/** Classify the replies seen during an upload against the stream that was sent. */
+export function interpretCabIrAcks(
+  frames: readonly (readonly number[])[],
+  expectedDataFrames: number,
+): CabIrUploadAcks {
+  const acks = frames.filter((f) => f[5] === 0x64);
+  const codes: { fn: number; code: number }[] = [];
+  for (const f of acks) {
+    const pair = { fn: f[6] ?? -1, code: f[7] ?? -1 };
+    if (!codes.some((c) => c.fn === pair.fn && c.code === pair.code)) codes.push(pair);
+  }
+  const start = acks.some((f) => f[6] === CAB_IR_FN_START);
+  const data = acks.filter((f) => f[6] === CAB_IR_FN_DATA).length;
+  const end = acks.some((f) => f[6] === CAB_IR_FN_END);
+  return {
+    frames: acks,
+    start,
+    data,
+    end,
+    expectedData: expectedDataFrames,
+    complete: start && end && data >= expectedDataFrames,
+    codes,
+  };
+}
 
 const SYSEX_START = 0xf0;
 const SYSEX_END = 0xf7;
@@ -246,16 +380,18 @@ export function parseCabIrSyx(input: readonly number[] | Uint8Array): CabIrSyx {
  */
 export function buildCabIrSyx(
   ir: CabIrSyx,
-  opts: { name?: string; startPayload?: readonly number[] } = {},
+  opts: { name?: string; startPayload?: readonly number[]; dest?: CabIrDestination | null } = {},
 ): number[] {
   const frames = ir.frames.map((f) => [...f]);
 
-  if (opts.startPayload) {
-    const payload = [...opts.startPayload];
+  const setStartPayload = (payload: readonly number[]): void => {
     if (payload.some((b) => b > 0x7f)) throw new Error('buildCabIrSyx: startPayload must be 7-bit clean');
     frames[0] = [...frames[0]!.slice(0, 6), ...payload, frames[0]![frames[0]!.length - 2]!, SYSEX_END];
     fixFrameChecksum(frames[0]!);
-  }
+  };
+
+  if (opts.dest !== undefined) setStartPayload(buildCabIrStartPayload(opts.dest));
+  if (opts.startPayload) setStartPayload([...opts.startPayload]);
 
   if (opts.name !== undefined) {
     const wanted = [...opts.name];
