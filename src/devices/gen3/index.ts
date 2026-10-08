@@ -192,3 +192,12 @@ export {
 export type { CabSlotState } from './cabSlotState.js';
 export { FIRMWARE_FAMILY_FNS, isFirmwareFamilyFn, frameFn } from './firmwareFamily.js';
 export { decodeCabSlotName, CAB_SLOT_NAME_OFFSET, CAB_SLOT_NAME_CHARS } from './cabSlotState.js';
+export {
+  parsePerformPage,
+  findPerformTables,
+  readText16,
+  PERFORM_SLOTS,
+  PERFORM_TABLE_BYTES,
+  PERFORM_RECORD_STRIDE,
+} from './performPage.js';
+export type { PerformPage, PerformSlot } from './performPage.js';
