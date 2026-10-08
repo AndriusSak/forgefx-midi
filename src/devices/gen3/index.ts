@@ -191,3 +191,4 @@ export {
 } from './cabSlotState.js';
 export type { CabSlotState } from './cabSlotState.js';
 export { FIRMWARE_FAMILY_FNS, isFirmwareFamilyFn, frameFn } from './firmwareFamily.js';
+export { decodeCabSlotName, CAB_SLOT_NAME_OFFSET, CAB_SLOT_NAME_CHARS } from './cabSlotState.js';

@@ -18,17 +18,19 @@
  *   • payload[15..29] = a NAME-DERIVED region. MEASURED 2026-10-08, and the mechanism is the NAME, not
  *     the samples: three slots holding the same name with wildly different sample data (a real IR, an
  *     all-zero sample set, and a one-byte spike) share the region byte for byte, while the SAME samples
- *     under a renamed container give a DIFFERENT region. So it confirms a RENAME (the region moves) but
- *     cannot distinguish two IRs that share a name. The encoding is undecoded — it is a fingerprint, not
- *     the name itself;
- *   • every empty slot in every bank (500 user + 16 scratchpad) shares ONE payload — but that EMPTY
- *     payload is NOT stable across sessions: the same slots read `…3e 00 1e 04 03 38…` in the morning and
- *     `…3e 00 0d 26 70…` hours later. Treat the empty value as unstable and never build on its bytes;
+ *     under a renamed container give a DIFFERENT region. The region IS the start of the slot's NAME, packed
+ *     (see below) — decode it with `decodeCabSlotName` rather than treating it as a fingerprint;
+ *   • an EMPTY slot's name field is not blank and not a shared constant: the device puts the literal text
+ *     "<EMPTY>" there, followed by STALE bytes that vary between slots and sessions (measured). So an empty
+ *     slot's field must never be compared or built on — the flag byte is the reliable signal;
  *   • payload[28..29] are VOLATILE — they differed between the capture and a later live read of the
  *     same slot, so they are reported separately and never treated as content;
- *   • the encoding of the region is NOT decoded. It is not a name: no 4-per-5-septet, 8-per-7 or
- *     plain-7-bit decoding at any offset yields a known name, and a rename did not change it. So this
- *     is a POPULATED/FINGERPRINT oracle, NOT a name oracle — report "populated", never "holds <name>".
+ *   • the region IS the name, DECODED (measured 2026-10-08, after this file first claimed the opposite): the
+ *     field holds the slot's name re-packed for the wire — 8-bit characters, MSB-first bit stream, re-split
+ *     into 7-bit septets, NUL-terminated — and `decodeCabSlotName` recovers it exactly. The earlier claim
+ *     ("the encoding is not decoded, it is a fingerprint, not the name") was reasoned from repeated letters
+ *     not repeating in the region; that reasoning ignored that a BIT-LEVEL repack destroys per-character byte
+ *     alignment, so repeats need not survive. Corrected rather than deleted: the mistake is instructive.
  *
  * The flag reading is reported as `null` when the byte matches neither constant: an unrecognised flag
  * must never be rounded to "empty" (silence and empty are different observations on this device too).
@@ -74,6 +76,53 @@ export const CAB_SLOT_EMPTY = 0x7f;
  * at offset 30+ changed between sessions). The region is what this module models; the rest is undecoded
  * device state and must not be interpreted.
  */
+/**
+ * The per-slot NAME, decoded from the `0x4B` reply — MEASURED 2026-10-08, and it closes the question the
+ * whole §2.5c line was about.
+ *
+ * The reply's payload carries the slot's name in the same 32-character field the `.syx` container uses, but
+ * REPACKED for the wire: each character is taken as an 8-bit value, the characters are concatenated
+ * **MSB-first** into one bit stream, and the stream is re-split into **7-bit groups** (SysEx payload bytes
+ * must be ≤ 0x7F). 32 characters × 8 bits = 256 bits → 37 septets, which is exactly the payload from
+ * `CAB_SLOT_NAME_OFFSET` to its end (52 − 15 = 37) — the geometry closes, which is how it was confirmed.
+ *
+ * VERIFIED against two independently known names written over the wire:
+ *   "LT TV Mix 7"    → 26 15 04 05 22 58 40 4d 34 5e 04 03 38 …
+ *   "LYKOS-NAMETEST" → 26 16 29 34 7a 4c 5a 4e 20 53 28 55 22 15 26 54 …
+ * Both decode back exactly. An EMPTY slot is not blank either: the device puts the literal text
+ * "<EMPTY>" in the field (measured), followed by stale fragments — so a name is only meaningful when the
+ * slot's flag says populated. NOTE what this invalidates: an earlier claim in this repo said the region was a
+ * "hash-like fingerprint" that could never carry a name, argued from repeated letters not repeating in the
+ * region. That reasoning was WRONG — a bit-level repacking destroys per-character byte alignment, so
+ * repeated letters need not repeat, and the region is the name itself.
+ */
+export const CAB_SLOT_NAME_OFFSET = 15;
+/** Characters in the packed name (the same 32 the container's name field holds). */
+export const CAB_SLOT_NAME_CHARS = 32;
+
+/** Unpack `CAB_SLOT_NAME_CHARS` characters from 7-bit septets (MSB-first bit stream → 8-bit characters). */
+export function decodeCabSlotName(payload: readonly number[]): string | undefined {
+  const septets = payload.slice(CAB_SLOT_NAME_OFFSET);
+  if (septets.length * 7 < CAB_SLOT_NAME_CHARS * 8) return undefined;
+  const bits: number[] = [];
+  for (const s of septets) for (let i = 6; i >= 0; i--) bits.push((s >> i) & 1);
+  const raw: number[] = [];
+  for (let c = 0; c < CAB_SLOT_NAME_CHARS; c++) {
+    let v = 0;
+    for (let k = 0; k < 8; k++) v = (v << 1) | bits[c * 8 + k]!;
+    // Stop at the terminator BEFORE mapping anything: the field is name + NUL + another packed field, and a
+    // "map non-printables to a dot" pass would erase the terminator and let the second field through.
+    if (v < 0x20 || v >= 0x7f) break;
+    raw.push(v);
+  }
+  const out = String.fromCharCode(...raw);
+  // The name is NUL-TERMINATED inside the field: the byte right after the last name character decodes to a
+  // non-printable, and BEYOND it the same bit stream carries OTHER packed data (which is why an 8-bit read
+  // of the whole 32 characters shows a length-dependent shift of something like "…ance Mode…"). Stop at the
+  // terminator; anything past it is a different field and is NOT part of the name.
+  return out.replace(/\s+$/, '');
+}
+
 export const CAB_SLOT_FN_SUBACTIONS: Readonly<Record<number, string>> = {
   0x4a: 'answered; identical across slots — no per-slot datum (undecoded)',
   0x4b: 'slot state: populated flag + name-derived region (implemented here)',
@@ -107,9 +156,12 @@ export interface CabSlotState {
   populated: boolean | null;
   /** The raw flag byte, so a `null` reading is still inspectable. */
   flag: number;
-  /** The NAME-derived region (15 bytes) — it moves with the slot's NAME, not its samples, and it is a
-   *  fingerprint, not the name. Undecoded encoding; identical for two slots that share a name. */
+  /** The first 15 bytes of the packed name field — the decoded name's first ~13 characters' worth. Kept
+   *  because existing callers compare it; `name` is the readable form and is what a UI should show. */
   nameRegion: number[];
+  /** The slot's NAME, decoded from the reply (see `decodeCabSlotName`). For an EMPTY slot this is the
+   *  device's own literal "<EMPTY>". `undefined` only when the payload is too short to hold the field. */
+  name: string | undefined;
   /** The volatile bytes (payload[28..29]) — reported, never part of the region. */
   volatileBytes: number[];
   /** The whole 52-byte reply payload, verbatim. */
@@ -134,6 +186,7 @@ export function parseCabSlotState(frame: readonly number[] | Uint8Array, index: 
     populated: flag === CAB_SLOT_POPULATED ? true : flag === CAB_SLOT_EMPTY ? false : null,
     flag,
     nameRegion: payload.slice(CAB_SLOT_REGION_START, CAB_SLOT_REGION_START + CAB_SLOT_REGION_LEN),
+    name: decodeCabSlotName(payload),
     volatileBytes: CAB_SLOT_VOLATILE_OFFSETS.map((o) => payload[o]!).filter((v) => v !== undefined),
     raw: payload,
   };

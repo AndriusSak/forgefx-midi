@@ -2,9 +2,10 @@
 //
 // The fixtures are VERBATIM: the request is the editor's own query shape, and the three reply payloads
 // are (a) an EMPTY slot, (b) user slot 1 and (c) a fresh upload to user slot 13 — the last two are
-// byte-identical in their content region, which is the whole basis for calling the region
-// content-derived. Nothing here is synthesised, and no test asserts a meaning the measurement did not
-// establish: the region is deliberately NOT decoded to a name (it is not one).
+// byte-identical in their name region, which is the whole basis for calling it name-derived. Nothing here
+// is synthesised, and no test asserts a meaning the measurement did not establish. NOTE: the region IS the
+// name, decoded — see the decodeCabSlotName cases; the file header claimed the opposite before that was
+// measured, and the claim is corrected here rather than left to mislead the next reader.
 import { fractalChecksum } from '../../../src/shared/checksum.js';
 import {
   buildCabSlotQuery,
@@ -20,9 +21,10 @@ import {
   CAB_SLOT_EMPTY,
   CAB_SLOT_REGION_LEN,
   CAB_SLOT_VOLATILE_OFFSETS,
+  decodeCabSlotName,
 } from '../../../src/devices/gen3/index.js';
 
-export const CAB_SLOT_STATE_CASE_COUNT = 12;
+export const CAB_SLOT_STATE_CASE_COUNT = 16;
 
 const MODEL_FM3 = 0x11;
 
@@ -31,6 +33,13 @@ const MODEL_FM3 = 0x11;
 const REQ_USER1 = [0xf0, 0x00, 0x01, 0x74, 0x11, 0x01, 0x4b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4e, 0xf7];
 
 const hex = (s: string): number[] => s.trim().split(/\s+/).map((h) => parseInt(h, 16));
+/** A reply PAYLOAD, padded to the measured 52 bytes: the device zero-fills the field, and the name decoder
+ *  needs the whole field (not just the bytes that happen to be non-zero) to see its 37 septets. */
+const payload52 = (s: string): number[] => {
+  const b = hex(s);
+  if (b.length > 52) throw new Error(`fixture is ${b.length} bytes — longer than the 52-byte payload`);
+  return [...b, ...new Array(52 - b.length).fill(0)];
+};
 
 /** The three reply PAYLOADS exactly as the device sent them (52 bytes each, incl. the sub echo). */
 const PAY_USER1 = hex(`4b 00 00 00 00 00 01 00 00 00 00 00 00 20 00 26 15 04 05 22 58 40 4d 34 5e 04 03 38
@@ -169,19 +178,37 @@ export function runCabSlotStateTests(): void {
     eq(REP_EMPTY.length, CAB_SLOT_REPLY_LEN, 'the empty-slot reply has the same length');
   });
 
-  // 12 — the region is NOT a name, and the module must not pretend otherwise
-  t('the content region does not decode to the slot name in any simple scheme', () => {
-    // The slot holds "LT TV Mix 7" (its .syx name). Assert that the naive decodings do NOT yield it —
-    // this is the guard against someone "improving" the parser into a name oracle without evidence.
-    const region = parseCabSlotState(REP_USER1, 0, 0x10)!.nameRegion;
-    const ascii = region.map((x) => (x >= 32 && x < 127 ? String.fromCharCode(x) : '.')).join('');
-    ok(!ascii.includes('LT TV'), `plain 7-bit must not produce the name, got ${JSON.stringify(ascii)}`);
-    let sept = '';
-    for (let i = 0; i + 5 <= region.length; i += 5) {
-      const v = (region[i]! | (region[i + 1]! << 7) | (region[i + 2]! << 14) | (region[i + 3]! << 21) | (region[i + 4]! << 28)) >>> 0;
-      sept += [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255].map((c) => (c >= 32 && c < 127 ? String.fromCharCode(c) : '.')).join('');
-    }
-    ok(!sept.includes('LT TV'), `5-septet must not produce the name, got ${JSON.stringify(sept)}`);
+  // 12 — the NAME decodes from the reply. This REPLACES an assertion that used to say the opposite
+  // ("the region is NOT a name, and the module must not pretend otherwise"), which was the 2026-10-08
+  // pre-measurement position: the region was argued to be a hash-like fingerprint from repeated letters not
+  // repeating. That argument was wrong — the field is the name RE-PACKED (8-bit characters, MSB-first bit
+  // stream, re-split into 7-bit septets, NUL-terminated) and a bit-level repack has no reason to preserve
+  // per-character byte alignment. The fixtures below are the device's own bytes from a capture of
+  // FM3-Edit reading the user bank, including slots whose names were confirmed independently.
+  t('the slot name decodes from the reply payload (measured, three independent confirmations)', () => {
+    eq(decodeCabSlotName(payload52(`4b 00 00 00 00 00 01 00 00 00 00 00 00 20 00 26 15 04 05 22 58 40 4d 34 5e 04 03 38 01 5e 72 36 58 2d 66 1b 14 40 4d 37 59 0c 50`)), 'LT TV Mix 7', 'U0001 = the name the owner confirmed');
+    eq(decodeCabSlotName(payload52(`4b 00 00 00 00 00 01 00 00 00 00 00 00 20 00 29 19 2e 32 02 41 66 79 31 5a 0d 72 01 48 00 72 36 58 2d 66 1b 14 40 4d 37 59 0c 50`)), 'Res Psycho 2', 'U0002 = a name nobody on this host had supplied, so the decode is not circular');
+    eq(decodeCabSlotName(payload52(`4b 00 00 00 00 00 01 00 00 00 00 00 00 20 00 26 15 04 05 22 58 40 4d 34 5e 04 03 38 00 00 72 36 58 2d 66 1b 14 40 4d 37 59 0c 50`)), 'LT TV Mix 7', 'U0012 = the same IR in another slot decodes the same');
+  });
+
+  // 13 — an EMPTY slot is not blank in the field: the device writes the literal text "<EMPTY>", followed
+  // by stale bytes. The decode must stop at the terminator rather than wander into them.
+  t('an empty slot decodes to the device\'s own "<EMPTY>"', () => {
+    eq(decodeCabSlotName(payload52(`4b 00 00 00 00 00 7f 01 00 00 00 00 00 20 00 1e 11 29 55 02 51 32 3e 00 13 28 55 22 15 26 54 00 18 2d 66 1b 14 40 4d 37 59 0c 50`)), '<EMPTY>', 'empty-slot text');
+  });
+
+  // 14 — the field carries MORE than the name: past the terminator the same bit stream holds another packed
+  // field (an 8-bit read of it shows a length-dependent shift of something like "...ance Mode..."). It must
+  // never end up inside the name.
+  t('the tail field is not part of the name', () => {
+    const name = decodeCabSlotName(payload52(`4b 00 00 00 00 00 01 00 00 00 00 00 00 20 00 26 15 04 05 22 58 40 4d 34 5e 04 03 38 01 5e 72 36 58 2d 66 1b 14 40 4d 37 59 0c 50`))!;
+    eq(name.length, 11, 'the name is exactly the name');
+    ok(!/ance|Mode/.test(name), `the trailing packed field must not leak in, got ${JSON.stringify(name)}`);
+  });
+
+  // 15 — too short to contain the field: no name, rather than a truncated one.
+  t('a payload too short for the field yields no name', () => {
+    eq(decodeCabSlotName([0x4b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00]), undefined, 'short payload');
   });
 
   if (failures.length) {
