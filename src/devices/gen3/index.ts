@@ -132,3 +132,23 @@ export type {
 
 export { validateGen3Preset } from './presetValidate.js';
 export type { Gen3ValidationResult } from './presetValidate.js';
+
+// User-cab IR `.syx` container (§2.5): parse / verbatim replay / rename / retarget.
+// The container geometry is MEASURED from a real FM3-Edit export; the SAMPLE payload is deliberately
+// not decoded and the 0x7C value is never recomputed — see the module header for the evidence and the
+// list of things it does NOT claim.
+export {
+  parseCabIrSyx,
+  buildCabIrSyx,
+  renameCabIrSyx,
+  retargetCabIrStart,
+  CAB_IR_FN_START,
+  CAB_IR_FN_DATA,
+  CAB_IR_FN_END,
+  CAB_IR_NAME_CHARS,
+  CAB_IR_NAME_CHUNKS,
+  CAB_IR_CHUNKS_PER_FRAME,
+  CAB_IR_SAMPLE_SLOTS,
+  CAB_IR_TARGET_UNSPECIFIED,
+} from './cabIrSyx.js';
+export type { CabIrSyx } from './cabIrSyx.js';
