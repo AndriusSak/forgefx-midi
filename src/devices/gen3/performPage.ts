@@ -12,8 +12,20 @@
 //   • immediately after, 10 × uint16 LE — the PARAM ids in the same slot order. 409: 7,0,13,22,0×6, and
 //     DELAY_MIX=0 / REVERB_MIX=13 / REVERB_BYPASS=22 are the ids the profile gives those parameters, from a
 //     completely independent source — that agreement is what makes this a measurement and not a guess;
-//   • then per-slot records at a 32-byte stride carrying 16-BIT CHARACTER strings: a block/effect label
-//     ("AMP1", "DLY1", "REV1") and a parameter label ("Gain", "Mix", "Fat") plus min/max text ("Off / On").
+//   • then a 32-byte-stride block of 16-BIT-CHARACTER EFFECT labels ("AMP", "DLY1", "REV", "CAB", "DRV1");
+//   • then a second 32-byte-stride block of PARAM labels ("Master Volume", "Feedback", "Pre-Delay",
+//     "Bypass Mode", "Tone").
+// VERIFIED against a user-built fixture (preset 410): six controls — Amp master volume, Delay feedback,
+// Reverb pre-delay, Reverb bypass, Cab proximity frequency, Drive tone — decode to eids 58/70/66/66/62/118
+// with pids 11/10/9/22/41/2 and exactly those labels, in that order. pid 22 = REVERB_BYPASS is independently
+// confirmed by the profile.
+//
+// TWO CAVEATS, both measured:
+//   • a label longer than the 32-byte slot is TRUNCATED and runs into the next slot ("Proximity Frequ"),
+//     so a long name is not recoverable from this field alone — prefer the param catalogue for display;
+//   • an UNASSIGNED slot keeps STALE text from whatever occupied it before (slot 7 read "HR1"/"ate" — the
+//     tails of "PHR1"/"Rate"), so a label is only meaningful when the slot's effectId is non-zero. Same
+//     lesson as an empty cab slot's "<EMPTY>" field.
 //
 // WHY THE SEARCH IS ANCHORED ON THE TEXT: the tables alone are not a signature. "10 small u16 then 10 small
 // u16" also describes the preset's GRID/BLOCK table, which sits at body offset 258 in BOTH fixtures — a scan
@@ -69,6 +81,18 @@ export function findPerformTables(body: ArrayLike<number>, minRuns = 4): number 
   return undefined;
 }
 
+/** Every NUL-terminated 16-bit-character string inside a window — no assumption about field roles. */
+export function textStringsIn(b: ArrayLike<number>, o: number, len: number): string[] {
+  const out: string[] = [];
+  for (let i = 0; i + 1 < len; ) {
+    let s = '';
+    let j = i;
+    while (j + 1 < len) { const c = u16(b, o + j); if (c === 0) break; if (c < 0x20 || c >= 0x7f) { s = ''; break; } s += String.fromCharCode(c); j += 2; }
+    if (s.length >= 2) { out.push(s); i = j + 2; } else i += 2;
+  }
+  return out;
+}
+
 export interface PerformSlot {
   /** 1-based, as the editor numbers them. */
   slot: number;
@@ -76,12 +100,13 @@ export interface PerformSlot {
   effectId: number;
   /** The param id within that effect, or 0 when unassigned. */
   paramId: number;
-  /** The block/effect label the record carries ("AMP1", "DLY1") — '' when absent. */
+  /** The effect label from the first label block ("AMP", "DLY1", "REV") — '' when absent or not text. */
   effectLabel: string;
-  /** The parameter label ("Gain", "Mix") — '' when absent. */
+  /** The parameter label from the SECOND label block ("Master Volume", "Feedback") — truncated to the
+   *  32-byte slot when the name is longer, and meaning nothing when the slot is unassigned (stale text). */
   paramLabel: string;
-  /** Min/max display text ("Off / On") — '' when absent. */
-  rangeLabel: string;
+  /** Text found in the remainder of the slot's second-block window — reported, never asserted as a role. */
+  paramLabel2: string;
 }
 
 export interface PerformPage {
@@ -97,20 +122,24 @@ export function parsePerformPage(body: ArrayLike<number>): PerformPage | undefin
   const at = findPerformTables(body);
   if (at === undefined) return undefined;
   const recordsAt = at + PERFORM_TABLE_BYTES;
+  const paramBlockAt = recordsAt + PERFORM_SLOTS * PERFORM_RECORD_STRIDE;
   const slots: PerformSlot[] = [];
   for (let i = 0; i < PERFORM_SLOTS; i++) {
     const effectId = u16(body, at + i * 2);
     const paramId = u16(body, at + PERFORM_SLOTS * 2 + i * 2);
     const rec = recordsAt + i * PERFORM_RECORD_STRIDE;
+    const pRec = paramBlockAt + i * PERFORM_RECORD_STRIDE;
+    // The effect label is the first text in its own record; the param label is the first text in the
+    // SECOND block's record (measured, verified against the six-control fixture). Neither is read from the
+    // other's block, and neither claims a role for any further text on the same line.
+    const paramStrings = textStringsIn(body, pRec, PERFORM_RECORD_STRIDE);
     slots.push({
       slot: i + 1,
       effectId,
       paramId,
-      // field order inside a record is NOT fully decoded yet: report every text field found in it rather
-      // than asserting which is which. The names below are the best current reading, not a proven layout.
       effectLabel: readText16(body, rec),
-      paramLabel: readText16(body, rec + 16),
-      rangeLabel: readText16(body, rec + PERFORM_RECORD_STRIDE - 16)
+      paramLabel: paramStrings[0] ?? '',
+      paramLabel2: paramStrings[1] ?? ''
     });
   }
   return { at, slots, assigned: slots.filter((s) => s.effectId !== 0).length };
