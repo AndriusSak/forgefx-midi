@@ -928,9 +928,6 @@ export const FM3_PARAMS: readonly Param[] = [
   { family: 'GLOBAL', paramId: 7110, name: 'GLOBAL_CS4_EXCLUSIVE', displayLabel: 'CS4 Exclusive', unit: 'enum' }, // inferred from AxeEdit III XML controlType
   { family: 'GLOBAL', paramId: 7111, name: 'GLOBAL_CS5_EXCLUSIVE', displayLabel: 'CS5 Exclusive', unit: 'enum' }, // inferred from AxeEdit III XML controlType
   { family: 'GLOBAL', paramId: 7112, name: 'GLOBAL_CS6_EXCLUSIVE', displayLabel: 'CS6 Exclusive', unit: 'enum' }, // inferred from AxeEdit III XML controlType
-  // 7115/7116: the `unit` tag stays 'unverified' (the display-unit LABEL is not measured), but the
-  // wire fact IS measured 2026-10-08 — see FM3_DISPLAY_UNIT_FAMILIES below: the continuous SET value
-  // for GLOBAL is in DISPLAY units (0..100 here), not the default 0..1 normalized fraction.
   { family: 'GLOBAL', paramId: 7115, name: 'GLOBAL_FS_BRIGHTNESS', displayLabel: 'Bright', unit: 'unverified' },
   { family: 'GLOBAL', paramId: 7116, name: 'GLOBAL_FS_LCD_CONTRAST', displayLabel: 'Contrast', unit: 'unverified' },
   { family: 'GLOBAL', paramId: 7389, name: 'GLOBAL_FC_MAINLCD_NOTIF_TIMEOUT', displayLabel: 'Main LCD Notification Hold', unit: 'enum' }, // inferred from AxeEdit III XML controlType; device-true 7389 (III 7115 would mis-address)
@@ -2060,47 +2057,3 @@ export const FM3_PARAMS_BY_FAMILY: Readonly<Record<string, readonly Param[]>> = 
 
 /** Effect families present in this device's catalog. */
 export const FM3_FAMILIES: readonly string[] = ["CABINET","CHORUS","COMP","CONTROLLERS","CROSSOVER","DELAY","DISTORT","ENHANCER","FC","FDBKRET","FDBKSEND","FILTER","FLANGER","FORMANT","FUZZ","GATE","GEQ","GLOBAL","INPUT","IRCAPTURE","IRPLAYER","LOOPER","MEGATAP","MIDIBLOCK","MIXER","MOD","MULTICOMP","MULTIPLEXER","MULTITAP","OUTPUT","PEQ","PHASER","PITCH","PLEX","PRESET","RESONATOR","REVERB","RINGMOD","ROTARY","RTA","SYNTH","TENTAP","TONEMATCH","TREMOLO","VOCODER","VOLUME","WAH"];
-
-/**
- * Families whose CONTINUOUS SET wire value is in DISPLAY units, NOT the 0..1 normalized
- * fraction the ordinary gen-3 continuous path carries.
- *
- * DEFAULT contract: `buildSetParameterContinuous` (fn 0x01, sub `52 00`) rides
- * `float32(normalized)` with `normalized ∈ [0,1]`, and the device maps that fraction through
- * the param's display range. The GLOBAL family on the FM3 does NOT — measured on a live FM3
- * (fw 13.0, 2026-10-08) against the fn=0x1F bulk body as the panel oracle:
- *
- *   setParam(1, 7115, 70)   → panel 70%   (body[7115] = 45874 ≈ 0.700 · 65534)
- *   setParam(1, 7115, 0.70) → panel 0.7%  (body[7115] = 459   ≈ 0.007 · 65534)
- *
- * The float the device receives therefore IS the DISPLAY value, so a UI sending a 0..1
- * fraction lands ~100x too small (brightness, contrast and the FC/CS numeric knobs — enums
- * are unaffected, they send ordinals on the discrete path). To write a marked family the
- * caller converts norm → display first, via the param's device-true display range
- * (ranges.generated.ts):
- *
- *   display = displayMin + norm · (displayMax − displayMin)
- *
- * VERIFIED: 7115 GLOBAL_FS_BRIGHTNESS and 7116 GLOBAL_FS_LCD_CONTRAST take 0..100 with
- * raw 65534 == 100%, read back through the fn=0x1F body. STILL UNVERIFIED: the display-unit
- * LABEL ('percent' vs a plain 0..100 count — so the `unit` field on those rows stays
- * 'unverified'), and whether the rest of the GLOBAL family (EQ gains, offsets, remaining FC/CS
- * numeric knobs) behaves identically to the measured percent knobs.
- *
- * WHY A CATALOG FACT (here) and not the driver: it is a per-device wire truth, so the next
- * family with the same quirk is a one-line DATA change, not a driver change. The generated
- * files (ranges.generated.ts / enumOverrides.ts) cannot carry it — their generator is
- * maintained outside this package — so this hand-maintained file is its home until the
- * upstream generator emits it. NO other gen-3 family is listed: CONTROLLERS / MOD / MIDIBLOCK /
- * FC are the other virtual families but carry no measured continuous-write evidence, so they
- * keep the default 0..1 behaviour.
- */
-export const FM3_DISPLAY_UNIT_FAMILIES: ReadonlySet<string> = new Set(['GLOBAL']);
-
-/**
- * True when a family's continuous SET wire value is in DISPLAY units (see
- * FM3_DISPLAY_UNIT_FAMILIES). Total: an unknown/absent family is `false` (default 0..1 wire).
- */
-export function fm3WireUnitsAreDisplay(family: string | undefined): boolean {
-  return family != null && FM3_DISPLAY_UNIT_FAMILIES.has(family);
-}
