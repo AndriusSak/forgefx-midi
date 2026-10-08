@@ -161,3 +161,23 @@ export {
   CAB_IR_START_TAIL,
 } from './cabIrSyx.js';
 export type { CabIrSyx, CabIrDestination, CabIrUploadAcks } from './cabIrSyx.js';
+
+// Per-slot cab STATE (`fn=0x01 sub=0x4B`) — the read-back the IR upload lacked. Measured: the reply's
+// payload[6] is the populated/empty flag and payload[15..29] is a content-derived region (identical
+// for slots holding the same IR). It is NOT a name oracle — see the module header.
+export {
+  buildCabSlotQuery,
+  parseCabSlotState,
+  cabSlotContentMatches,
+  CAB_SLOT_FN,
+  CAB_SLOT_SUB,
+  CAB_SLOT_QUERY_LEN,
+  CAB_SLOT_REPLY_LEN,
+  CAB_SLOT_FLAG_OFFSET,
+  CAB_SLOT_REGION_START,
+  CAB_SLOT_REGION_LEN,
+  CAB_SLOT_VOLATILE_OFFSETS,
+  CAB_SLOT_POPULATED,
+  CAB_SLOT_EMPTY,
+} from './cabSlotState.js';
+export type { CabSlotState } from './cabSlotState.js';
