@@ -206,6 +206,23 @@ export {
   PERFORM_RECORD_STRIDE,
 } from './performPage.js';
 export type { PerformPage, PerformSlot } from './performPage.js';
+export {
+  parsePerPresetSwitches,
+  patchPerPresetSwitch,
+  findPerPresetSwitchBlock,
+  ppActionName,
+  ppTargetLabel,
+  PP_TARGET_ANCHORS,
+  PP_MARKER,
+  PP_MARKER_SIBLING,
+  PP_ACTION_OFFSET,
+  PP_TARGET_OFFSET,
+  PP_SWITCH_COUNT,
+  PP_REGION_BYTES,
+  PP_ACTION_CODES_MEASURED,
+  PP_TARGET_BYTES_MEASURED,
+} from './perPresetSwitches.js';
+export type { PerPresetSwitch, PerPresetSwitches } from './perPresetSwitches.js';
 
 // The preset-AUTHOR path, re-exported so a consumer can rebuild a dump from a patched body without
 // reaching into a deep subpath (`reencodeRawPatch` recompresses, `reencodeDumpFromRawPatch` reframes+CRCs).
