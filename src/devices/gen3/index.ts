@@ -190,3 +190,4 @@ export {
   CAB_SLOT_EMPTY,
 } from './cabSlotState.js';
 export type { CabSlotState } from './cabSlotState.js';
+export { FIRMWARE_FAMILY_FNS, isFirmwareFamilyFn, frameFn } from './firmwareFamily.js';
