@@ -126,7 +126,8 @@ export function runPerPresetSwitchTests(): void {
   t('an UNMEASURED target index reports no name rather than a plausible one', () => {
     eq(ppTargetLabel(51), 'Reverb 1', 'a measured anchor resolves');
     eq(ppTargetLabel(0), 'Amp 1', 'including the first one');
-    eq(ppTargetLabel(9), null, 'index 9 is inside the unlabelled 8–16 band → null, not a guess');
+    eq(ppTargetLabel(8), 'Delay 2', 'and the later one (Delay 1 = 7 → Delay 2 = 8: instances are consecutive)');
+    eq(ppTargetLabel(9), null, 'index 9 is inside the unlabelled band → null, not a guess');
     eq(ppTargetLabel(50), null, 'and so is any other unmeasured index');
     eq(ppActionName(0x99), null, 'an unmeasured action code gets no function name');
     eq(ppActionName(0), 'unassigned', 'while 0 still reads as unassigned');

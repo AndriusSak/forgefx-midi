@@ -19,8 +19,14 @@
 //     predicted Reverb 1 = 15 and read 51; a grid position would have given ≈ 10). Do not re-derive either.
 //
 // NOT MEASURED — every field derived from the below is tagged `inferred` and the UI must show that tag:
-//   • the SWITCH COUNT and therefore the stride of both arrays. +148 is the only offset ever observed, and
-//     ONE observation cannot distinguish "one byte per switch" from "a record stride with a gap".
+//   • the SWITCH COUNT — and the TARGET ARRAY's stride, which a measurement has now REFUTED as contiguous:
+//     a capture with PP#2 fully configured left marker+149 UNCHANGED, so the target bytes are not one per
+//     switch in a flat array. The ACTION-CODE stride IS 2 bytes (marker+4 and marker+6 both moved when the
+//     owner changed PP#1's and PP#2's action, in separate captures).
+//   • the leading candidate for PP#2's target byte is marker+160 — it moved 1 → 14 in the same capture as
+//     PP#2's action change, and 148 + 12 = 160. But that is ONE observation, and 14 did not match what the
+//     alphabetical model predicts for the block the owner picked there, so it stays a HYPOTHESIS. A capture
+//     that sets PP#2's target to a KNOWN anchor would settle it in one edit (see the docs).
 //   • the ACTION CODES beyond the two samples (0x04, 0x03) that produced them.
 //   • whether an absent target byte (0) means "switch unconfigured" — the empty block reads all-zero, which
 //     is consistent with it, and nothing else has been observed.
@@ -56,14 +62,16 @@ export const PP_REGION_BYTES = PP_TARGET_OFFSET + PP_SWITCH_COUNT;
 const u16 = (b: ArrayLike<number>, o: number): number => (b[o] ?? 0) | ((b[o + 1] ?? 0) << 8);
 
 /**
- * The measured target anchors — index → the FX-slot name the FM3's picker shows. 13 entries, each the
- * result of one edit by the owner plus one read-only dump. An index NOT in this table is genuinely
- * unlabelled: report the number, never a guess (indices 8–16 in particular are bounded only by
- * dichotomising, and "FB Snd" among them is a candidate, not a finding).
+ * The measured target anchors — index → the FX-slot name the FM3's picker shows. 14 entries, each the
+ * result of one edit by the owner plus one read-only dump (the first 13 from a single-switch sweep; `Delay 2`
+ * from a later differential). An index NOT in this table is genuinely unlabelled: report the number, never a
+ * guess (indices 9–19 in particular are unbounded, and "FB Snd" among them is a candidate, not a finding).
+ * `Delay 2 = 8` also confirms the per-family INSTANCES are consecutive (`Delay 1 = 7` → `Delay 2 = 8`).
  */
 export const PP_TARGET_ANCHORS: Readonly<Record<number, string>> = {
-  0: 'Amp 1', 1: 'Cab 1', 2: 'Chorus 1', 3: 'Chorus 2', 7: 'Delay 1', 20: 'Filter 4',
-  25: 'Gate 1', 27: 'GEQ 1', 29: 'In 1', 31: 'Looper', 32: 'Megatap 1', 38: 'MultDly 1', 51: 'Reverb 1'
+  0: 'Amp 1', 1: 'Cab 1', 2: 'Chorus 1', 3: 'Chorus 2', 7: 'Delay 1', 8: 'Delay 2',
+  20: 'Filter 4', 25: 'Gate 1', 27: 'GEQ 1', 29: 'In 1', 31: 'Looper', 32: 'Megatap 1',
+  38: 'MultDly 1', 51: 'Reverb 1'
 };
 
 /** The name for a measured target index, or null when nobody has measured that index. */
