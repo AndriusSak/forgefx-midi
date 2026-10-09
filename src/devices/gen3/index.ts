@@ -223,10 +223,10 @@ export {
   PP_TARGET_OFFSET,
   PP_SWITCH_COUNT,
   PP_REGION_BYTES,
-  PP_ACTION_CODES_MEASURED,
-  PP_TARGET_BYTES_MEASURED,
+  PP_ACTION_CODE_INDICES,
+  PP_TARGET_BYTE_INDICES,
 } from './perPresetSwitches.js';
-export type { PerPresetSwitch, PerPresetSwitches, PpMeasuredOffsets, PpRowConfidence } from './perPresetSwitches.js';
+export type { PerPresetSwitch, PerPresetSwitches, PpMeasuredOffsets, PpRowConfidence, PpEvidence } from './perPresetSwitches.js';
 
 // The preset-AUTHOR path, re-exported so a consumer can rebuild a dump from a patched body without
 // reaching into a deep subpath (`reencodeRawPatch` recompresses, `reencodeDumpFromRawPatch` reframes+CRCs).

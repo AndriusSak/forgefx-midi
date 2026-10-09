@@ -62,10 +62,21 @@ export const PP_TARGET_OFFSET = PP_MEASURED_OFFSETS[1]!.target!;
 /** How many per-preset switches an FM3 is ASSUMED to expose (rows without an observed offset report nulls). */
 export const PP_SWITCH_COUNT = 12;
 
-/** How many indices have an observed ACTION CODE offset. */
-export const PP_ACTION_CODES_MEASURED = Object.values(PP_MEASURED_OFFSETS).length;
-/** How many indices have an observed TARGET BYTE offset. */
-export const PP_TARGET_BYTES_MEASURED = Object.values(PP_MEASURED_OFFSETS).filter((o) => o.target !== undefined).length;
+/**
+ * The switch INDICES whose ACTION-CODE offset is observed, ascending — DERIVED from the offset table, so it
+ * cannot drift from the model. Naming the indices (not their count) is what lets a reader state the evidence
+ * without assuming the observed indices are contiguous.
+ */
+export const PP_ACTION_CODE_INDICES: readonly number[] = Object.entries(PP_MEASURED_OFFSETS)
+  .filter(([, o]) => o.actionCode !== undefined)
+  .map(([i]) => Number(i))
+  .sort((a, b) => a - b);
+
+/** The switch INDICES whose TARGET-BYTE offset is observed, ascending — DERIVED from the same table. */
+export const PP_TARGET_BYTE_INDICES: readonly number[] = Object.entries(PP_MEASURED_OFFSETS)
+  .filter(([, o]) => o.target !== undefined)
+  .map(([i]) => Number(i))
+  .sort((a, b) => a - b);
 
 /** Bytes from the marker that this decoder may read — one u16 past the highest observed offset. */
 export const PP_REGION_BYTES =
@@ -129,10 +140,20 @@ export interface PerPresetSwitches {
   /** The model in one word: per-index observed offsets, not a stride formula. */
   geometry: 'per-index-observed-offsets';
   /**
-   * How far each field's evidence reaches, counted from PP#1 — DERIVED from the offset table, so it cannot
-   * drift from the model. Anything past these counts is reported as null, not extrapolated.
+   * WHICH switch indices each field's evidence reaches, ascending — DERIVED from the offset table, so it
+   * cannot drift from the model. The indices are named explicitly rather than carried as a count: the table
+   * has no stride, so two observed indices need not be adjacent, and a reader that turned a count into a
+   * contiguous range ("PP#1–PP#n") would claim an index nobody measured. Anything not listed reads null.
    */
-  evidence: { actionCodesMeasured: number; targetBytesMeasured: number };
+  evidence: PpEvidence;
+}
+
+/** The switch indices each field's evidence reaches — the model's evidence, in index form. */
+export interface PpEvidence {
+  /** Indices whose ACTION-CODE offset is observed, ascending. */
+  actionCodeIndices: number[];
+  /** Indices whose TARGET-BYTE offset is observed, ascending. */
+  targetByteIndices: number[];
 }
 
 /** Locate the block: the first `0x05F5` / `0x0001` marker pair in the body, or undefined. */
@@ -178,7 +199,7 @@ export function parsePerPresetSwitches(body: ArrayLike<number>, count = PP_SWITC
     populated,
     switches,
     geometry: 'per-index-observed-offsets',
-    evidence: { actionCodesMeasured: PP_ACTION_CODES_MEASURED, targetBytesMeasured: PP_TARGET_BYTES_MEASURED }
+    evidence: { actionCodeIndices: [...PP_ACTION_CODE_INDICES], targetByteIndices: [...PP_TARGET_BYTE_INDICES] }
   };
 }
 

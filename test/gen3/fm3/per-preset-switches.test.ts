@@ -17,12 +17,14 @@ import {
   ppTargetLabel,
   ppWritable,
   PP_MEASURED_OFFSETS,
+  PP_ACTION_CODE_INDICES,
+  PP_TARGET_BYTE_INDICES,
   PP_ACTION_OFFSET,
   PP_TARGET_OFFSET,
   PP_SWITCH_COUNT,
 } from '../../../src/devices/gen3/index.js';
 
-export const PER_PRESET_SWITCH_CASE_COUNT = 15;
+export const PER_PRESET_SWITCH_CASE_COUNT = 16;
 
 /** body[11380..11600] of preset 410, verbatim: zeros with the 0x05F5/0x0001 marker at region offset 40. */
 function realSlice(): Uint8Array {
@@ -36,7 +38,7 @@ function realSlice(): Uint8Array {
  * body[11412..11588] of the SAME preset captured LATER, with PP#1 (Effect: Bypass → Filter 4) and PP#2
  * (Scene: Select) configured — verbatim: the marker at region offset 8 and exactly four non-zero bytes
  * (marker+4 = 4, marker+6 = 3, marker+148 = 20, marker+160 = 1). Those four offsets are precisely the ones
- * a two-fixture differential moved, which is the evidence behind `evidence.actionCodesMeasured = 2`.
+ * a two-fixture differential moved, which is the evidence behind `evidence.actionCodeIndices = [1, 2]`.
  */
 /** The marker's offset inside `populatedSlice` — every +N offset below is relative to THIS, not to 0. */
 const POPULATED_MARKER_AT = 8;
@@ -160,12 +162,25 @@ export function runPerPresetSwitchTests(): void {
     eq(pp2.confidence, 'partial', 'PP#2 has an observed action code but no located target byte');
   });
 
-  t('the page reports HOW FAR the evidence goes, per field', () => {
+  t('the page reports WHICH indices the evidence reaches, per field', () => {
     const page = parsePerPresetSwitches(populatedSlice())!;
-    eq(page.evidence.actionCodesMeasured, 2, 'two action codes were confirmed by the two-fixture differential');
-    eq(page.evidence.targetBytesMeasured, 1, 'but only ONE target byte ever has been');
+    eq(page.evidence.actionCodeIndices.join(','), '1,2', 'the action-code offsets observed are PP#1 and PP#2');
+    eq(page.evidence.targetByteIndices.join(','), '1', 'but the only located target-byte offset is PP#1\'s');
     // and the row-level view stays as conservative as the evidence: PP#1 measured, the rest not.
     eq(page.switches.filter((s) => s.confidence === 'measured').length, 1, 'only PP#1 is marked measured');
+  });
+
+  t('the evidence LISTS are DERIVED from the offset table (no second hand-kept number)', () => {
+    const actionFromTable = Object.keys(PP_MEASURED_OFFSETS).map(Number).sort((a, b) => a - b);
+    const targetFromTable = Object.keys(PP_MEASURED_OFFSETS).map(Number)
+      .filter((i) => PP_MEASURED_OFFSETS[i]!.target !== undefined).sort((a, b) => a - b);
+    eq(PP_ACTION_CODE_INDICES.join(','), actionFromTable.join(','), 'action-code indices mirror the table');
+    eq(PP_TARGET_BYTE_INDICES.join(','), targetFromTable.join(','), 'target-byte indices mirror the table');
+    eq(PP_TARGET_BYTE_INDICES.join(','), '1', 'and today the target list is PP#1 alone');
+    // The page carries the LISTS, never a count — the shape a reader can render without assuming contiguity.
+    const page = parsePerPresetSwitches(populatedSlice())!;
+    eq(page.evidence.actionCodeIndices.join(','), '1,2', 'the page carries the action-code indices');
+    eq(page.evidence.targetByteIndices.join(','), '1', 'and the target-byte indices');
   });
 
   t('writing PP#1 leaves PP#2 untouched', () => {
