@@ -201,6 +201,8 @@ export {
   findPerformTables,
   readText16,
   textStringsIn,
+  writeText16,
+  performLabelRoundTrip,
   PERFORM_SLOTS,
   PERFORM_TABLE_BYTES,
   PERFORM_RECORD_STRIDE,

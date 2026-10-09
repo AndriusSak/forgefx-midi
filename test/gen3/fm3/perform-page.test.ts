@@ -9,6 +9,7 @@
 import {
   parsePerformPage,
   findPerformTables,
+  performLabelRoundTrip,
   PERFORM_SLOTS,
 } from '../../../src/devices/gen3/index.js';
 
@@ -45,7 +46,7 @@ const PAGE = new Uint8Array([
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ]);
 
-export const PERFORM_PAGE_CASE_COUNT = 7;
+export const PERFORM_PAGE_CASE_COUNT = 11;
 
 const failures: string[] = [];
 function t(name: string, fn: () => void): void {
@@ -84,6 +85,23 @@ export function runPerformPageTests(): void {
   });
   t('a body with no page yields undefined, never a candidate', () => {
     eq(parsePerformPage(new Uint8Array(200)), undefined, 'no page in a zeroed body');
+  });
+
+  // The LABEL round trip (third-party review 2026-10-09, finding 10). `performLabelRoundTrip` answers what a
+  // write will READ BACK as, and it must reproduce the four cases MEASURED against the real fixture — so the
+  // driver can compare the read-back against the codec's own encoding instead of the requested string.
+  t('a label of 4+ characters round-trips unchanged', () => {
+    eq(performLabelRoundTrip('Tone'), 'Tone', 'Tone survives on both sides');
+    eq(performLabelRoundTrip('Master Volume'), 'Master Volume', 'and a 13-char label');
+  });
+  t('a TWO-character label is read back as itself (the reader accepts length >= 2)', () => {
+    eq(performLabelRoundTrip('AB'), 'AB', 'two characters do round-trip');
+  });
+  t('a ONE-character label reads back empty (the reader demands >= 2) — the false-mismatch case', () => {
+    eq(performLabelRoundTrip('A'), '', 'one character cannot be read back');
+  });
+  t('a non-ASCII label is read back masked to 7 bits (é -> i)', () => {
+    eq(performLabelRoundTrip('Café'), 'Cafi', 'the writer masks each character to 7 bits');
   });
 
   if (failures.length) {

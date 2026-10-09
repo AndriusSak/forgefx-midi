@@ -81,6 +81,51 @@ export function findPerformTables(body: ArrayLike<number>, minRuns = 4): number 
   return undefined;
 }
 
+/**
+ * Write `text` into ONE 32-byte label window: truncate to the window minus its NUL, mask each character to
+ * 7 bits, NUL-pad the rest. This is the WRITE rule `patchPerformSlot` uses — it lives here (not inside the
+ * write closure) so `performLabelRoundTrip` can apply the SAME rule rather than a copy that could drift.
+ */
+export function writeText16(body: Uint8Array, o: number, text: string): void {
+  const maxChars = PERFORM_RECORD_STRIDE / 2 - 1;
+  const chars = [...text].slice(0, maxChars);
+  for (let k = 0; k < PERFORM_RECORD_STRIDE / 2; k++) {
+    const v = k < chars.length ? chars[k]!.charCodeAt(0) & 0x7f : 0;
+    body[o + k * 2] = v & 0xff;
+    body[o + k * 2 + 1] = (v >> 8) & 0xff;
+  }
+}
+
+/**
+ * What a LABEL write of `text` will READ BACK as.
+ *
+ * The write side and the read side of a perform-page label apply DIFFERENT rules, so comparing a read-back
+ * against the REQUESTED string answers a question nobody asked: it demands the unit echo an input the write
+ * path never promises to store. This function answers the question the caller actually means — "does the
+ * device hold what this write could represent?" — by applying the write rule and then reading the bytes back
+ * through the parser's own reader (`textStringsIn`, the path `paramLabel` is decoded with). It is derived from
+ * the SAME `writeText16` and the SAME `textStringsIn` the codec uses, never a re-implementation, so the two
+ * cannot drift.
+ *
+ * MEASURED 2026-10-09 against the real fixture (preset 410), writing a slot's PARAM label and reading it back:
+ *   • "Tone" -> "Tone"   (a 4-char label round-trips unchanged)
+ *   • "AB"   -> "AB"     (two characters DO round-trip — the reader accepts a string of length >= 2)
+ *   • "A"    -> ""       (a ONE-character label cannot be read back: the reader demands at least 2 chars)
+ *   • "Café" -> "Cafi"   (the writer masks every character to 7 bits, so é (0xE9) becomes i (0x69))
+ * The last two were reported as `readback-mismatch` although the unit held exactly what was written.
+ *
+ * WHAT THIS DOES NOT DO: it does not make a short offsetting EFFECT label legal. `patchPerformSlot` still
+ * REFUSES a patch whose label would relocate the page (the label text is `findPerformTables`' anchor — a
+ * separate guard, review finding 2), and it does not turn a genuinely WRONG read-back into a success: the
+ * caller still compares the read-back against this normaliser, so a read-back that differs from what the
+ * write could represent remains `readback-mismatch` with the actual read-back reported.
+ */
+export function performLabelRoundTrip(text: string): string {
+  const window = new Uint8Array(PERFORM_RECORD_STRIDE);
+  writeText16(window, 0, text);
+  return textStringsIn(window, 0, PERFORM_RECORD_STRIDE)[0] ?? '';
+}
+
 /** Every NUL-terminated 16-bit-character string inside a window — no assumption about field roles. */
 export function textStringsIn(b: ArrayLike<number>, o: number, len: number): string[] {
   const out: string[] = [];
@@ -188,12 +233,7 @@ function writeSlotBytes(
   const recs = at + PERFORM_TABLE_BYTES;
   const paramBlock = recs + PERFORM_SLOTS * PERFORM_RECORD_STRIDE;
   const put = (o: number, v: number): void => { body[o] = v & 0xff; body[o + 1] = (v >> 8) & 0xff; };
-  const writeText = (o: number, text: string): void => {
-    // one 32-byte window = 16 uint16 slots; the last one stays NUL so the string is always terminated
-    const maxChars = PERFORM_RECORD_STRIDE / 2 - 1;
-    const chars = [...text].slice(0, maxChars);
-    for (let k = 0; k < PERFORM_RECORD_STRIDE / 2; k++) put(o + k * 2, k < chars.length ? chars[k]!.charCodeAt(0) & 0x7f : 0);
-  };
+  const writeText = (o: number, text: string): void => writeText16(body, o, text);
   if (next.effectId !== undefined) put(at + i * 2, next.effectId);
   if (next.paramId !== undefined) put(at + PERFORM_SLOTS * 2 + i * 2, next.paramId);
   if (next.effectLabel !== undefined) writeText(recs + i * PERFORM_RECORD_STRIDE, next.effectLabel);
