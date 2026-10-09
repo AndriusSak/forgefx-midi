@@ -212,7 +212,9 @@ export {
   findPerPresetSwitchBlock,
   ppActionName,
   ppTargetLabel,
+  ppWritable,
   PP_TARGET_ANCHORS,
+  PP_MEASURED_OFFSETS,
   PP_MARKER,
   PP_MARKER_SIBLING,
   PP_ACTION_OFFSET,
@@ -222,7 +224,7 @@ export {
   PP_ACTION_CODES_MEASURED,
   PP_TARGET_BYTES_MEASURED,
 } from './perPresetSwitches.js';
-export type { PerPresetSwitch, PerPresetSwitches } from './perPresetSwitches.js';
+export type { PerPresetSwitch, PerPresetSwitches, PpMeasuredOffsets, PpRowConfidence } from './perPresetSwitches.js';
 
 // The preset-AUTHOR path, re-exported so a consumer can rebuild a dump from a patched body without
 // reaching into a deep subpath (`reencodeRawPatch` recompresses, `reencodeDumpFromRawPatch` reframes+CRCs).

@@ -15,12 +15,14 @@ import {
   patchPerPresetSwitch,
   ppActionName,
   ppTargetLabel,
+  ppWritable,
+  PP_MEASURED_OFFSETS,
   PP_ACTION_OFFSET,
   PP_TARGET_OFFSET,
   PP_SWITCH_COUNT,
 } from '../../../src/devices/gen3/index.js';
 
-export const PER_PRESET_SWITCH_CASE_COUNT = 11;
+export const PER_PRESET_SWITCH_CASE_COUNT = 14;
 
 /** body[11380..11600] of preset 410, verbatim: zeros with the 0x05F5/0x0001 marker at region offset 40. */
 function realSlice(): Uint8Array {
@@ -69,17 +71,25 @@ export function runPerPresetSwitchTests(): void {
     if (!page) throw new Error('the block exists (the marker is there) and must be reported');
     eq(page.at, 40, 'marker offset');
     eq(page.populated, false, 'the real region is all-zero, so it is NOT populated');
-    eq(page.geometry, 'measured-pp1-only', 'and the decode says how much of it it can vouch for');
+    eq(page.geometry, 'per-index-observed-offsets', 'and the decode names its own model');
     eq(page.switches.length, PP_SWITCH_COUNT, 'rows are reported for the assumed switch count');
     eq(page.switches[0]!.actionCode, 0, 'PP#1 action code is 0 (no assignment recorded)');
     eq(page.switches[0]!.targetIndex, 0, 'and its target byte is 0');
     eq(page.switches[0]!.action, 'unassigned', 'which is reported as unassigned, not guessed at');
   });
 
-  t('only PP#1 is marked MEASURED — every later row admits it is inferred', () => {
-    const page = parsePerPresetSwitches(realSlice())!;
-    eq(page.switches[0]!.confidence, 'measured', 'PP#1 (offset confirmed twice)');
-    for (const s of page.switches.slice(1)) eq(s.confidence, 'inferred', `PP#${s.index} is inferred`);
+  t('a row is only as readable as its OBSERVED offsets — never read from a guessed position', () => {
+    const page = parsePerPresetSwitches(populatedSlice())!;
+    eq(page.switches[0]!.confidence, 'measured', 'PP#1: both offsets observed');
+    eq(page.switches[1]!.confidence, 'partial', 'PP#2: action code observed, target byte NOT located');
+    eq(page.switches[1]!.actionCode, 0x03, 'so its action code is reported');
+    eq(page.switches[1]!.targetIndex, null, 'and its target byte is NULL, not a value read from marker+149');
+    eq(page.switches[1]!.targetLabel, null, 'with no label either');
+    for (const s of page.switches.slice(2)) {
+      eq(s.confidence, 'unknown', `PP#${s.index} has no observed offset`);
+      eq(s.actionCode, null, `PP#${s.index} reports no action code`);
+      eq(s.targetIndex, null, `PP#${s.index} reports no target`);
+    }
   });
 
   t('patch → parse round trip at the DOCUMENTED offsets (self-consistency, not device semantics)', () => {
@@ -144,7 +154,7 @@ export function runPerPresetSwitchTests(): void {
     const pp2 = page.switches[1]!;
     eq(pp2.actionCode, 0x03, 'PP#2 action code (the second configured switch)');
     eq(pp2.action, 'Scene: Select (inferred)', 'named as the inferred scene action');
-    eq(pp2.confidence, 'inferred', 'but PP#2 still does not claim measured geometry');
+    eq(pp2.confidence, 'partial', 'PP#2 has an observed action code but no located target byte');
   });
 
   t('the page reports HOW FAR the evidence goes, per field', () => {
@@ -161,7 +171,33 @@ export function runPerPresetSwitchTests(): void {
     const page = parsePerPresetSwitches(body)!;
     eq(page.switches[0]!.targetIndex, 51, 'PP#1 moved');
     eq(page.switches[1]!.actionCode, 0x03, 'PP#2 action code is intact');
-    eq(page.switches[1]!.targetIndex, 0, 'and so is its target byte');
+    // PP#2's target byte is UNLOCATED, so there is nothing to check — and nothing was written for it.
+    eq(page.switches[1]!.targetIndex, null, 'PP#2 still reports no target (its offset is unknown)');
+    eq(body[PP_TARGET_OFFSET + 1], 0, 'and the byte at marker+149 was NOT touched by the PP#1 write');
+  });
+
+  t('ppWritable answers per FIELD, straight from the offset table', () => {
+    eq(ppWritable(1).any, true, 'PP#1 can be written');
+    eq(ppWritable(1).target, true, 'including its target byte');
+    eq(ppWritable(2).any, true, 'PP#2 can have its ACTION CODE written (that offset is observed)');
+    eq(ppWritable(2).target, false, 'but NOT its target byte — that offset has never been located');
+    eq(ppWritable(3).any, false, 'PP#3 has no observed offset at all');
+    eq(ppWritable(3).target, false, 'so nothing about it may be written');
+  });
+
+  t('a patch with NO fields is refused, and a refused patch writes NOTHING', () => {
+    const body = populatedSlice();
+    const before = Array.from(body).join(',');
+    eq(patchPerPresetSwitch(body, 1, {}), false, 'an empty patch is refused (it is a no-op, not a success)');
+    // an index whose target offset is unlocated, asked for a TARGET write: refused whole, not half-applied
+    eq(patchPerPresetSwitch(body, 2, { actionCode: 0x04, targetIndex: 51 }), false, 'PP#2 + target is refused');
+    eq(Array.from(body).join(','), before, 'and NOTHING was written — no partial patch');
+  });
+
+  t('the named PP#1 offsets ARE the table (one source of truth, no stride formula left)', () => {
+    eq(PP_ACTION_OFFSET, PP_MEASURED_OFFSETS[1]!.actionCode, 'PP_ACTION_OFFSET comes from the table');
+    eq(PP_TARGET_OFFSET, PP_MEASURED_OFFSETS[1]!.target, 'and so does PP_TARGET_OFFSET');
+    eq(PP_MEASURED_OFFSETS[2]!.target, undefined, 'PP#2 deliberately has NO target offset (refuted stride)');
   });
 
   if (failures.length) throw new Error(`per-preset switches: ${failures.length} case(s) failed\n  - ${failures.join('\n  - ')}`);

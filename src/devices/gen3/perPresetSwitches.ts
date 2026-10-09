@@ -1,72 +1,83 @@
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 // PER-PRESET SWITCH DEFINITIONS, decoded from a preset body (§3.8).
 //
-// WHAT IS MEASURED, AND WHAT IS NOT. This file is deliberately loud about the difference, because the
-// decode here is thinner than the perform page's: the perform page had a fixture PAIR and 7 golden cases,
-// while the switch block had ONE configured switch at a time and its geometry has never been seen
-// populated in a committed fixture.
+// THE MODEL IS A TABLE, NOT A FORMULA. Every switch field this module reports sits at an offset that was
+// OBSERVED on the unit; fields whose offset nobody has located are reported as null rather than read out of
+// a guessed position. That is not caution for its own sake — a stride formula was believed here and then
+// REFUTED (see below), so the layout is now per-index data (`PP_MEASURED_OFFSETS`) that one more edit can
+// extend without touching any logic.
 //
-// MEASURED (on the wire, 2026-10-08):
-//   • the block is located by the marker pair u16 `0x05F5` / u16 `0x0001`. Search for it — do NOT hard-code
-//     an offset: the doc recorded it "at ~11412" while the committed preset-410 fixture holds it at
-//     **11420** (the body is compressed, so other content shifts it).
-//   • one u16 ACTION CODE per switch begins at marker+4;
-//   • the PP#1 TARGET BYTE sits at marker+148 — the doc's absolute value 11568 and this fixture's marker
-//     (11420) agree on exactly +148, which is the one piece of this layout confirmed twice.
-//   • the target is an index into the FM3's ALPHABETICALLY ORDERED FX-SLOT ENUMERATION, instances expanded
-//     (the list the switch picker shows). 13 anchors were read, one edit + one dump each — see
-//     PP_TARGET_ANCHORS. Two models were REFUTED by their own predictions (a short alphabetical inventory
-//     predicted Reverb 1 = 15 and read 51; a grid position would have given ≈ 10). Do not re-derive either.
+// MEASURED (on the wire, FM3 fw 13.0):
+//   • the block is located by the marker pair u16 `0x05F5` / u16 `0x0001`. SEARCH for it — never hard-code an
+//     offset: the doc recorded it "at ~11412" while preset 410's body holds it at **11420** (the body is
+//     compressed, so other content shifts it).
+//   • marker+4 = PP#1's u16 ACTION CODE, marker+6 = PP#2's (a two-capture differential moved each to the code
+//     the owner had configured there).
+//   • marker+148 = PP#1's TARGET BYTE (read 20 = "Filter 4", then 8 = "Delay 2", each matching an anchor
+//     measured independently on the wire).
+//   • the target is an index into the FM3's ALPHABETICALLY ORDERED FX-SLOT ENUMERATION, instances expanded.
+//     14 anchors, one edit + one dump each — see PP_TARGET_ANCHORS.
 //
-// NOT MEASURED — every field derived from the below is tagged `inferred` and the UI must show that tag:
-//   • the SWITCH COUNT — and the TARGET ARRAY's stride, which a measurement has now REFUTED as contiguous:
-//     a capture with PP#2 fully configured left marker+149 UNCHANGED, so the target bytes are not one per
-//     switch in a flat array. The ACTION-CODE stride IS 2 bytes (marker+4 and marker+6 both moved when the
-//     owner changed PP#1's and PP#2's action, in separate captures).
-//   • the leading candidate for PP#2's target byte is marker+160 — it moved 1 → 14 in the same capture as
-//     PP#2's action change, and 148 + 12 = 160. But that is ONE observation, and 14 did not match what the
-//     alphabetical model predicts for the block the owner picked there, so it stays a HYPOTHESIS. A capture
-//     that sets PP#2's target to a KNOWN anchor would settle it in one edit (see the docs).
-//   • the ACTION CODES beyond the two samples (0x04, 0x03) that produced them.
-//   • whether an absent target byte (0) means "switch unconfigured" — the empty block reads all-zero, which
-//     is consistent with it, and nothing else has been observed.
+// REFUTED — do not re-derive:
+//   • the target index is the eid, the block-list order, the chain order, a grid cell, or a type id;
+//   • the target index is a position in a block roster (both candidate rosters in this repo reproduce 1 of 13
+//     anchors, because each needs the FM3's Amp block to contribute one entry and no table here says that);
+//   • **the target bytes are a flat one-per-switch array.** A capture with PP#2 fully configured — its action
+//     code DID move at marker+6 — left marker+149 untouched. Hence `PP_MEASURED_OFFSETS[2]` has no `target`.
+//   • two fitted alphabetical models were killed by their own predictions (Reverb 1 predicted 15, read 51;
+//     a grid position would have given ≈ 10).
 //
-// A parser here never invents a name: `ppTargetLabel` returns null for an index nobody has measured, and
-// the row keeps its raw index so a human can resolve it with one edit and one dump.
+// OPEN: the byte at marker+160 (it moved 0 → 1 → 14 across three captures, and 148 + 12 = 160) is the leading
+// candidate for PP#2's target byte with a 12-byte record stride — but that is ONE observation and 14 did not
+// match the alphabetical prediction for the block picked there, so it stays a HYPOTHESIS. Recording it as a
+// value would be the exact mistake this file exists to avoid. One edit settles it: set PP#2's target to a
+// KNOWN anchor (Reverb 1 = 51) and read marker+160.
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** The marker pair that locates the block: u16 0x05F5 immediately followed by u16 0x0001. */
 export const PP_MARKER = 0x05f5;
 export const PP_MARKER_SIBLING = 0x0001;
 
-/** Action codes start this many bytes after the marker (MEASURED: doc's 11424 with this body's 11420). */
-export const PP_ACTION_OFFSET = 4;
-/** PP#1's target byte sits this many bytes after the marker (MEASURED: 11568 − 11420, confirmed twice). */
-export const PP_TARGET_OFFSET = 148;
-/** How many per-preset switches an FM3 exposes — ASSUMED, not measured. Every row past PP#1 is `inferred`. */
-export const PP_SWITCH_COUNT = 12;
-/** How many leading ACTION CODES the two-fixture differential confirmed (marker+4 and marker+6). */
-export const PP_ACTION_CODES_MEASURED = 2;
-/** How many leading TARGET BYTES are measured (marker+148 only). */
-export const PP_TARGET_BYTES_MEASURED = 1;
-/** Length of the region a write touches, from the marker: covers the action codes AND the PP#N target. */
-export const PP_REGION_BYTES = PP_TARGET_OFFSET + PP_SWITCH_COUNT;
+/** One switch index's OBSERVED byte offsets, relative to the marker. */
+export interface PpMeasuredOffsets {
+  /** The u16 action code. */
+  actionCode: number;
+  /** The target byte — OMITTED when nobody has located it (the flat-array reading was refuted). */
+  target?: number;
+}
 
-// OPEN OBSERVATION (2026-10-08), recorded rather than smoothed over: between the two real captures the byte
-// at marker+160 (0 → 1) changed and NOTHING in this model accounts for it. It sits exactly one byte past the
-// 12 assumed target bytes, so it is either a 13th entry of something, the start of a neighbouring field, or
-// unrelated content that moved for its own reason — the two captures were hours apart and a perform-page
-// label changed in the same diff, so this is not a controlled experiment. It does NOT touch any offset this
-// decoder reads (marker+4/+6/+148), and it is why `PP_SWITCH_COUNT` stays an explicit assumption.
+/**
+ * The observed offsets, per switch index. Adding an index here is the WHOLE change needed to decode or write
+ * it; nothing downstream assumes a stride. An index absent from this table is reported with null fields.
+ */
+export const PP_MEASURED_OFFSETS: Readonly<Record<number, PpMeasuredOffsets>> = {
+  1: { actionCode: 4, target: 148 },
+  2: { actionCode: 6 } // action code observed; its target byte is NOT located (see marker+160 above)
+};
+
+/** PP#1's offsets — kept as named constants because most call sites mean exactly PP#1. */
+export const PP_ACTION_OFFSET = PP_MEASURED_OFFSETS[1]!.actionCode;
+export const PP_TARGET_OFFSET = PP_MEASURED_OFFSETS[1]!.target!;
+
+/** How many per-preset switches an FM3 is ASSUMED to expose (rows without an observed offset report nulls). */
+export const PP_SWITCH_COUNT = 12;
+
+/** How many indices have an observed ACTION CODE offset. */
+export const PP_ACTION_CODES_MEASURED = Object.values(PP_MEASURED_OFFSETS).length;
+/** How many indices have an observed TARGET BYTE offset. */
+export const PP_TARGET_BYTES_MEASURED = Object.values(PP_MEASURED_OFFSETS).filter((o) => o.target !== undefined).length;
+
+/** Bytes from the marker that this decoder may read — one u16 past the highest observed offset. */
+export const PP_REGION_BYTES =
+  Math.max(...Object.values(PP_MEASURED_OFFSETS).flatMap((o) => [o.actionCode, o.target ?? o.actionCode])) + 2;
 
 const u16 = (b: ArrayLike<number>, o: number): number => (b[o] ?? 0) | ((b[o + 1] ?? 0) << 8);
 
 /**
- * The measured target anchors — index → the FX-slot name the FM3's picker shows. 14 entries, each the
- * result of one edit by the owner plus one read-only dump (the first 13 from a single-switch sweep; `Delay 2`
- * from a later differential). An index NOT in this table is genuinely unlabelled: report the number, never a
- * guess (indices 9–19 in particular are unbounded, and "FB Snd" among them is a candidate, not a finding).
- * `Delay 2 = 8` also confirms the per-family INSTANCES are consecutive (`Delay 1 = 7` → `Delay 2 = 8`).
+ * The measured target anchors — index → the FX-slot name the FM3's picker shows. 14 entries, each the result
+ * of one edit by the owner plus one read-only dump. An index NOT in this table is genuinely unlabelled:
+ * report the number, never a guess (indices 9–19 in particular are unbounded, and "FB Snd" among them is a
+ * candidate, not a finding). `Delay 2 = 8` also confirms a family's INSTANCES are consecutive (7 → 8).
  */
 export const PP_TARGET_ANCHORS: Readonly<Record<number, string>> = {
   0: 'Amp 1', 1: 'Cab 1', 2: 'Chorus 1', 3: 'Chorus 2', 7: 'Delay 1', 8: 'Delay 2',
@@ -81,8 +92,8 @@ export function ppTargetLabel(index: number): string | null {
 
 /**
  * The action a switch performs. `unassigned` for 0 (observed: the empty block is all-zero) and null for a
- * code nobody has measured — the caller shows the raw byte rather than a made-up function name.
- * The two named codes are INFERRED from two configured switches, not measured across all functions.
+ * code nobody has measured — the caller shows the raw byte rather than a made-up function name. The two
+ * named codes are INFERRED from two configured switches, not measured across all functions.
  */
 export function ppActionName(code: number): string | null {
   if (code === 0) return 'unassigned';
@@ -91,34 +102,35 @@ export function ppActionName(code: number): string | null {
   return null;
 }
 
+/** How much of a row is actually observed. Drives what a caller may show, and what it may write. */
+export type PpRowConfidence = 'measured' | 'partial' | 'unknown';
+
 export interface PerPresetSwitch {
   /** 1-based, as the switch picker numbers them ("PP#1"). */
   index: number;
-  /** Raw 16-bit action code as the body holds it. */
-  actionCode: number;
-  /** `ppActionName` of that code, or null when the code is unmeasured. */
+  /** u16 action code — null when this index's action-code offset has not been observed. */
+  actionCode: number | null;
+  /** `ppActionName` of that code, or null when there is no code to name. */
   action: string | null;
-  /** Raw target byte (an index into the alphabetical FX-slot enumeration). */
-  targetIndex: number;
-  /** The FX-slot name for that index, or null when the index is unlabelled (never a guess). */
+  /** Target byte — null when its offset has not been observed (never read from a guessed position). */
+  targetIndex: number | null;
+  /** The FX-slot name for that index, or null when unlabelled / unread. */
   targetLabel: string | null;
-  /** 'measured' only for PP#1 (the one offset confirmed twice); 'inferred' for every other row. */
-  confidence: 'measured' | 'inferred';
+  /** 'measured' = both offsets observed · 'partial' = action code only · 'unknown' = neither. */
+  confidence: PpRowConfidence;
 }
 
 export interface PerPresetSwitches {
   /** Offset of the marker in the decompressed body (diagnostic — it MOVES between presets). */
   at: number;
-  /** True when any byte of the block is non-zero. An unpopulated block is reported, not hidden. */
+  /** True when any OBSERVED byte of the block is non-zero. An unpopulated block is reported, not hidden. */
   populated: boolean;
   switches: PerPresetSwitch[];
-  /** Which rows a caller may trust: this decode can only vouch for PP#1 today. */
-  geometry: 'measured-pp1-only';
+  /** The model in one word: per-index observed offsets, not a stride formula. */
+  geometry: 'per-index-observed-offsets';
   /**
-   * How far each field's evidence actually reaches, counted from PP#1. The action-code array is confirmed
-   * for two entries (a two-fixture differential moved marker+4 AND marker+6, each to the code the owner had
-   * configured there); the target-byte array is confirmed for ONE (marker+148 read 20 = "Filter 4", the
-   * anchor measured independently on the wire). Anything past these counts is an extrapolation.
+   * How far each field's evidence reaches, counted from PP#1 — DERIVED from the offset table, so it cannot
+   * drift from the model. Anything past these counts is reported as null, not extrapolated.
    */
   evidence: { actionCodesMeasured: number; targetBytesMeasured: number };
 }
@@ -132,45 +144,52 @@ export function findPerPresetSwitchBlock(body: ArrayLike<number>): number | unde
 }
 
 /**
- * Parse the switch definitions from a DECOMPRESSED preset body. `undefined` when the marker is absent —
- * never a synthesised block. The `at + PP_REGION_BYTES` bound is checked first: a marker near the end of
- * the body would otherwise read phantom switches out of whatever follows it.
+ * Parse the switch definitions from a DECOMPRESSED preset body. `undefined` when the marker is absent — never
+ * a synthesised block. A marker too close to the end of the body is refused too: the observed offsets would
+ * run off it, and reading past the end invents rows.
  */
 export function parsePerPresetSwitches(body: ArrayLike<number>, count = PP_SWITCH_COUNT): PerPresetSwitches | undefined {
   const at = findPerPresetSwitchBlock(body);
   if (at === undefined) return undefined;
-  if (at + PP_TARGET_OFFSET >= body.length) return undefined; // marker too close to the end to be this block
+  if (at + PP_REGION_BYTES > body.length) return undefined;
   const n = Math.max(1, Math.min(count, PP_SWITCH_COUNT));
   const switches: PerPresetSwitch[] = [];
-  for (let i = 0; i < n; i++) {
-    const actionCode = u16(body, at + PP_ACTION_OFFSET + i * 2);
-    const targetIndex = body[at + PP_TARGET_OFFSET + i] ?? 0;
+  for (let i = 1; i <= n; i++) {
+    const off = PP_MEASURED_OFFSETS[i];
+    if (!off) {
+      switches.push({ index: i, actionCode: null, action: null, targetIndex: null, targetLabel: null, confidence: 'unknown' });
+      continue;
+    }
+    const actionCode = u16(body, at + off.actionCode);
+    const hasTarget = off.target !== undefined;
+    const targetIndex = hasTarget ? (body[at + off.target!] ?? 0) : null;
     switches.push({
-      index: i + 1,
+      index: i,
       actionCode,
       action: ppActionName(actionCode),
       targetIndex,
-      targetLabel: ppTargetLabel(targetIndex),
-      confidence: i === 0 ? 'measured' : 'inferred'
+      targetLabel: targetIndex === null ? null : ppTargetLabel(targetIndex),
+      confidence: hasTarget ? 'measured' : 'partial'
     });
   }
-  const populated = switches.some((s) => s.actionCode !== 0 || s.targetIndex !== 0);
+  const populated = switches.some((s) => (s.actionCode ?? 0) !== 0 || (s.targetIndex ?? 0) !== 0);
   return {
     at,
     populated,
     switches,
-    geometry: 'measured-pp1-only',
+    geometry: 'per-index-observed-offsets',
     evidence: { actionCodesMeasured: PP_ACTION_CODES_MEASURED, targetBytesMeasured: PP_TARGET_BYTES_MEASURED }
   };
 }
 
 /**
- * Patch ONE switch in place — the WRITE side, in the byte domain. Length-preserving: both fields are
- * fixed-size, so this is the same shape of edit the perform page does and it rides the same
- * recompress/reframe/retarget path.
+ * Patch ONE switch in place — the WRITE side, in the byte domain. Length-preserving: both fields are fixed
+ * size, so this is the same shape of edit the perform page does and it rides the same recompress/reframe/
+ * retarget path.
  *
- * BOUNDED ON PURPOSE: only PP#1 is measured, so an index other than 1 is REFUSED rather than written to an
- * offset that has never been observed. Returns false and writes nothing — never a partial write.
+ * BOUNDED ON PURPOSE: an index with no observed offset, or a target write at an index whose target byte has
+ * never been located, is REFUSED. Everything is validated BEFORE anything is written, so a rejected call
+ * cannot leave a half-applied patch. Returns false and writes nothing.
  */
 export function patchPerPresetSwitch(
   body: Uint8Array,
@@ -179,17 +198,24 @@ export function patchPerPresetSwitch(
 ): boolean {
   const at = findPerPresetSwitchBlock(body);
   if (at === undefined) return false;
-  if (at + PP_TARGET_OFFSET >= body.length) return false;
+  if (at + PP_REGION_BYTES > body.length) return false;
   if (!Number.isInteger(index) || index < 1 || index > PP_SWITCH_COUNT) return false;
-  if (index !== 1) return false; // only PP#1's offsets are measured — see the header
-  const put = (o: number, v: number): void => { body[o] = v & 0xff; body[o + 1] = (v >> 8) & 0xff; };
-  if (next.actionCode !== undefined) {
-    if (!Number.isInteger(next.actionCode) || next.actionCode < 0 || next.actionCode > 0xffff) return false;
-    put(at + PP_ACTION_OFFSET, next.actionCode);
-  }
+  const off = PP_MEASURED_OFFSETS[index];
+  if (!off) return false; // no observed offset for this index
+  if (next.actionCode === undefined && next.targetIndex === undefined) return false;
+  if (next.actionCode !== undefined && (!Number.isInteger(next.actionCode) || next.actionCode < 0 || next.actionCode > 0xffff)) return false;
   if (next.targetIndex !== undefined) {
     if (!Number.isInteger(next.targetIndex) || next.targetIndex < 0 || next.targetIndex > 0xff) return false;
-    body[at + PP_TARGET_OFFSET] = next.targetIndex & 0xff;
+    if (off.target === undefined) return false; // this index's target byte has never been located
   }
+  const put = (o: number, v: number): void => { body[o] = v & 0xff; body[o + 1] = (v >> 8) & 0xff; };
+  if (next.actionCode !== undefined) put(at + off.actionCode, next.actionCode);
+  if (next.targetIndex !== undefined) body[at + off.target!] = next.targetIndex & 0xff;
   return true;
+}
+
+/** True when `index` can be WRITTEN at all (an observed action-code offset), and whether its target byte can. */
+export function ppWritable(index: number): { any: boolean; target: boolean } {
+  const off = PP_MEASURED_OFFSETS[index];
+  return { any: !!off, target: !!off && off.target !== undefined };
 }
