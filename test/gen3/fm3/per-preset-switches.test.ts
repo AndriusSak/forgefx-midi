@@ -22,7 +22,7 @@ import {
   PP_SWITCH_COUNT,
 } from '../../../src/devices/gen3/index.js';
 
-export const PER_PRESET_SWITCH_CASE_COUNT = 14;
+export const PER_PRESET_SWITCH_CASE_COUNT = 15;
 
 /** body[11380..11600] of preset 410, verbatim: zeros with the 0x05F5/0x0001 marker at region offset 40. */
 function realSlice(): Uint8Array {
@@ -38,9 +38,12 @@ function realSlice(): Uint8Array {
  * (marker+4 = 4, marker+6 = 3, marker+148 = 20, marker+160 = 1). Those four offsets are precisely the ones
  * a two-fixture differential moved, which is the evidence behind `evidence.actionCodesMeasured = 2`.
  */
+/** The marker's offset inside `populatedSlice` — every +N offset below is relative to THIS, not to 0. */
+const POPULATED_MARKER_AT = 8;
+
 function populatedSlice(): Uint8Array {
   const s = new Uint8Array(176);
-  s[8] = 0xf5; s[9] = 0x05; s[10] = 0x01; s[11] = 0x00; // marker (region +8)
+  s[POPULATED_MARKER_AT] = 0xf5; s[POPULATED_MARKER_AT + 1] = 0x05; s[POPULATED_MARKER_AT + 2] = 0x01; s[POPULATED_MARKER_AT + 3] = 0x00; // marker (region +8)
   s[12] = 0x04;  // PP#1 action code — Effect: Bypass
   s[14] = 0x03;  // PP#2 action code — Scene: Select
   s[156] = 20;   // PP#1 target byte — index 20 = "Filter 4"
@@ -173,7 +176,18 @@ export function runPerPresetSwitchTests(): void {
     eq(page.switches[1]!.actionCode, 0x03, 'PP#2 action code is intact');
     // PP#2's target byte is UNLOCATED, so there is nothing to check — and nothing was written for it.
     eq(page.switches[1]!.targetIndex, null, 'PP#2 still reports no target (its offset is unknown)');
-    eq(body[PP_TARGET_OFFSET + 1], 0, 'and the byte at marker+149 was NOT touched by the PP#1 write');
+    // INDEX ARITHMETIC: these offsets are relative to the MARKER, which sits at slice offset 8 — not at 0.
+    // The previous version read `body[PP_TARGET_OFFSET + 1]`, i.e. index 149 = marker+141, so it watched a
+    // byte the refuted flat array never touched and passed whatever the write did to marker+149.
+    eq(body[POPULATED_MARKER_AT + PP_TARGET_OFFSET + 1], 0, 'and the byte at marker+149 was NOT touched by the PP#1 write');
+  });
+
+  t('a NON-ZERO marker+149 survives the PP#1 write (regression guard for the refuted flat array)', () => {
+    const body = populatedSlice();
+    body[POPULATED_MARKER_AT + PP_TARGET_OFFSET + 1] = 0x2a; // the position a FLAT one-per-switch array would have used
+    if (!patchPerPresetSwitch(body, 1, { targetIndex: 51 })) throw new Error('patch refused');
+    eq(body[POPULATED_MARKER_AT + PP_TARGET_OFFSET + 1], 0x2a, 'marker+149 untouched — a flat target array is refuted');
+    eq(body[POPULATED_MARKER_AT + PP_TARGET_OFFSET], 51, 'while the MEASURED PP#1 target byte did move');
   });
 
   t('ppWritable answers per FIELD, straight from the offset table', () => {

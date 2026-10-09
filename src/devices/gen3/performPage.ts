@@ -166,7 +166,25 @@ export function patchPerformSlot(
   if (!page) return false;
   const i = slot - 1;
   if (!Number.isInteger(i) || i < 0 || i >= PERFORM_SLOTS) return false;
-  const at = page.at;
+  // The label text is the ANCHOR findPerformTables searches for, so patching a label can move the page to a
+  // DIFFERENT record. MEASURED 2026-10-09: writing a two-character effect label relocated the page from
+  // 10698 to 10730 and the slot then read 0/0 — the write "succeeded" into a mis-anchored page, and every
+  // later patch would land on the wrong record. Apply to a COPY and refuse unless the page is still found at
+  // the same offset, so a relocating patch is never half-applied.
+  const trial = Uint8Array.from(body);
+  writeSlotBytes(trial, page.at, i, next);
+  if (findPerformTables(trial) !== page.at) return false;
+  body.set(trial);
+  return true;
+}
+
+/** Write one slot's bytes at a known page offset. No validation — the caller owns the anchor check. */
+function writeSlotBytes(
+  body: Uint8Array,
+  at: number,
+  i: number,
+  next: { effectId?: number; paramId?: number; effectLabel?: string; paramLabel?: string }
+): void {
   const recs = at + PERFORM_TABLE_BYTES;
   const paramBlock = recs + PERFORM_SLOTS * PERFORM_RECORD_STRIDE;
   const put = (o: number, v: number): void => { body[o] = v & 0xff; body[o + 1] = (v >> 8) & 0xff; };
@@ -180,5 +198,4 @@ export function patchPerformSlot(
   if (next.paramId !== undefined) put(at + PERFORM_SLOTS * 2 + i * 2, next.paramId);
   if (next.effectLabel !== undefined) writeText(recs + i * PERFORM_RECORD_STRIDE, next.effectLabel);
   if (next.paramLabel !== undefined) writeText(paramBlock + i * PERFORM_RECORD_STRIDE, next.paramLabel);
-  return true;
 }
