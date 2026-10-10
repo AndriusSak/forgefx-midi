@@ -294,14 +294,14 @@ export function runPerPresetSwitchTests(): void {
     eq(PP_ACTION_CATEGORIES[0x08], 'Looper', '0x08 was assigned Looper');
     eq(ppActionName(0x04), 'Effect (category — the mode is in the record)', 'and the display name says so rather than inventing a function');
     eq(ppActionName(0x02), 'Preset (category — the mode is in the record)', 'likewise for Preset');
-    eq(ppActionName(0x07), 'Control Switch / Layout (unconfirmed which) (category — the mode is in the record)',
-      '0x07 is measured as ONE category whose assignment the owner confirmed only as "Control Switch OR Layout" — the uncertainty is in the NAME, not hidden');
+    eq(PP_ACTION_CATEGORIES[0x07], 'Control Switch', '0x07 is Control Switch — CONFIRMED by the owner after the capture, so the name no longer hedges');
+    eq(ppActionName(0x07), 'Control Switch (category — the mode is in the record)', 'and it displays as the category');
     eq(ppActionName(0x42), null, 'an unmeasured code still gets no name at all');
     eq(ppActionName(0), 'unassigned', 'and 0 still reads as unassigned');
   });
 
   t('a category that does not write record+0 leaves that field UNLOCATED — the bound is per FIELD', () => {
-    // PP#18 (Effect: Parameter), PP#21 (Tuner), PP#22 (Looper) and PP#23 (Control Switch/Layout) left the first
+    // PP#18 (Effect: Parameter), PP#21 (Tuner), PP#22 (Looper) and PP#23 (Control Switch) left the first
     // byte of their 12-byte record at zero; PP#18 put its values at +2 and +8 instead. A zero is not an
     // observation, so the codec keeps reporting their code and REFUSES a target write, rather than offering a
     // field their category does not use. PP#14's record+0 DID hold a value (3 = a scene number, not an FX slot).

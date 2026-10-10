@@ -51,19 +51,23 @@
 // 2. **The action code names the CATEGORY, not the function.** Effect: Bypass, Effect: Change Channel and
 //    Effect: Parameter ALL read 0x04; Scene: Select and the other scene flavour both read 0x03; Preset: Select
 //    and Preset: Increment both read 0x02. Measured codes: `0x02` Preset · `0x03` Scene · `0x04` Effect ·
-//    `0x05` Tuner · `0x07` Control Switch/Layout (which of the two is unconfirmed) · `0x08` Looper. The MODE
+//    `0x05` Tuner · `0x07` Control Switch (owner-confirmed) · `0x08` Looper. The MODE
 //    lives inside the 12-byte record (see below), which is why this file no longer claims "0x04 = Bypass".
 //
 // THE RECORD IS 12 BYTES WITH CATEGORY-DEPENDENT FIELDS — measured, per switch, from that same capture:
 //   • record+0 carries the "which one" value for the target-selecting categories: the FX-slot index for
 //     Effect: Bypass (20 = Filter 4, 51 = Reverb 1 …), the SCENE number for Scene: Select (3 and 7 on two
 //     switches), the PRESET number for Preset: Select (28).
+//   • Scene: TOGGLE uses +0 and +2 as its PRIMARY and SECONDARY scene — the owner confirmed the assignment
+//     ("primary scene 1, secondary scene 1") and the record read +0=1, +2=1, which fits; a pair with two
+//     DIFFERENT scenes is still needed to prove which of the two offsets is which (an open item, and the
+//     reason this is written as "fits" rather than "confirmed").
 //   • categories that do not select a target leave +0 at ZERO and write elsewhere: Effect: Parameter wrote +2=2
 //     and +8=1; Effect: Change Channel wrote +0=2 with +4=1; one Preset: Increment row wrote +0=1 plus a u16
-//     511 at +6; Tuner, Looper and the Control-Switch/Layout row left the WHOLE record zero.
+//     511 at +6; Tuner, Looper and the Control-Switch row left the WHOLE record zero.
 //   ⇒ So `targetIndex` below is the byte at record+0, and it is only the "location" for the categories that use
 //     it. It is left UNLOCATED for the four rows whose +0 read zero (PP#18 Effect: Parameter, PP#21 Tuner,
-//     PP#22 Looper, PP#23 Control Switch/Layout): a zero is not an observation, and those rows refuse a target
+//     PP#22 Looper, PP#23 Control Switch): a zero is not an observation, and those rows refuse a target
 //     write rather than writing to a field their category does not use.
 //   ⇒ Decoding the per-category record layout (+2/+4/+6/+8) is OPEN — it needs one edit per category, and the
 //     owner has confirmed the assignments for 14–23 only in outline.
@@ -108,7 +112,7 @@ export const PP_MEASURED_OFFSETS: Readonly<Record<number, PpMeasuredOffsets>> = 
   20: { actionCode: 42, target: 376 },   // Preset: Increment → +0=1 with a u16 511 at +6
   21: { actionCode: 44 },                // Tuner → the whole record read zero
   22: { actionCode: 46 },                // Looper → the whole record read zero
-  23: { actionCode: 48 },                // Control Switch / Layout → the whole record read zero
+  23: { actionCode: 48 },                // Control Switch → the whole record read zero
   24: { actionCode: 50, target: 424 }
 };
 
@@ -171,15 +175,16 @@ export function ppTargetLabel(index: number): string | null {
  * Preset: Select and Preset: Increment. The mode is inside the 12-byte record (see the header), so a caller
  * must NOT turn one of these into a function name — "Effect: Bypass" was exactly that mistake.
  *
- * `0x07` is measured as ONE category and the owner's assignment for that switch was "Control Switch 1 OR
- * Layout 2" (the suggestion offered both), so which of the two it is remains unconfirmed — stated, not guessed.
+ * `0x07` was measured on a switch whose assignment allowed "Control Switch 1 OR Layout 2"; the owner has since
+ * confirmed it was **Control Switch**, so Layout remains UNMEASURED — it either shares this code or has one of
+ * its own, and nobody has observed which.
  */
 export const PP_ACTION_CATEGORIES: Readonly<Record<number, string>> = {
   0x02: 'Preset',
   0x03: 'Scene',
   0x04: 'Effect',
   0x05: 'Tuner',
-  0x07: 'Control Switch / Layout (unconfirmed which)',
+  0x07: 'Control Switch',
   0x08: 'Looper'
 };
 
