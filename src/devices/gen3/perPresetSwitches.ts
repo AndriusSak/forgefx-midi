@@ -35,16 +35,17 @@
 //   • two fitted alphabetical models were killed by their own predictions (Reverb 1 predicted 15, read 51;
 //     a grid position would have given ≈ 10).
 //
-// MEASURED for ALL TWELVE indices, both fields. The seventh capture set PP#6..PP#12 to seven DISTINCT anchors
-// and every predicted value was read back: action codes 0x04 at marker+14/16/18/20/22/24/26 (the whole range
-// filled — marker+26 DID move to 0x04, which is what the executable check caught when a hand-read of the same
-// window called it zero) and targets 25/27/29/31/32/38 at marker+208..268 plus PP#12's 3 = "Chorus 2" at
-// marker+280. That also turns the assumed switch COUNT into a measurement.
+// THE UNIT HAS **TWENTY-FOUR** PER-PRESET SWITCHES, not twelve — the owner read the count off FM3-Edit, and the
+// eighth capture CONFIRMED it: PP#13 and PP#24 set to Effect: Bypass → Gate 1 / Megatap 1 read back exactly the
+// predicted bytes (action codes 0x04 at marker+28 and +50; targets 25 at marker+292 and 32 at marker+424). So
+// the action-code array is 24 u16 wide (marker+4..+50) and the target bytes are 24 × 12 apart
+// (marker+148..+424) — one contiguous range, not two blocks of twelve, and the same two strides throughout.
 //
-// A stride is still not a reading: an entry appears here only after an observed capture, and this file must
-// keep reading that way. If the unit exposes MORE than twelve per-preset switches (FM3-Edit's own list is the
-// authority — the owner reports 24 rows), the next ones would sit at marker+28, +30, … for the action codes and
-// marker+292, +304, … for the targets, with the same rule: set one to a known anchor, read the byte, add it.
+// MEASURED so far: PP#1–PP#13 and PP#24, both fields. Indices 14–23 are ABSENT on purpose: the strides fit
+// perfectly between 13 and 24 (22 = 2×11 and 132 = 12×11 exactly), which is precisely the trap this file
+// exists to avoid — a stride is not a reading, and an entry appears here only after an observed capture. Those
+// ten rows therefore read as UNREAD, which is honest; measuring them is one edit round (and a category sweep
+// would do both jobs at once, since each switch's action code lands in its own slot).
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** The marker pair that locates the block: u16 0x05F5 immediately followed by u16 0x0001. */
@@ -75,7 +76,11 @@ export const PP_MEASURED_OFFSETS: Readonly<Record<number, PpMeasuredOffsets>> = 
   9: { actionCode: 20, target: 244 },
   10: { actionCode: 22, target: 256 },
   11: { actionCode: 24, target: 268 },
-  12: { actionCode: 26, target: 280 }
+  12: { actionCode: 26, target: 280 },
+  13: { actionCode: 28, target: 292 },
+  // 14..23 NOT measured — the strides predict marker+30…+48 and marker+304…+412, and a prediction is not a
+  // reading (see the header). One edit with those switches set to known anchors fills them in.
+  24: { actionCode: 50, target: 424 }
 };
 
 /** PP#1's offsets — kept as named constants because most call sites mean exactly PP#1. */
@@ -83,11 +88,12 @@ export const PP_ACTION_OFFSET = PP_MEASURED_OFFSETS[1]!.actionCode;
 export const PP_TARGET_OFFSET = PP_MEASURED_OFFSETS[1]!.target!;
 
 /**
- * How many per-preset switches an FM3 exposes. Was an ASSUMPTION until 2026-10-09; now EVIDENCED — the seventh
- * capture's PP#12 target byte at marker+280 AND its action code at marker+26 both read the values the model
- * predicted, so twelve entries are real and all twelve are in the offset table.
+ * How many per-preset switches an FM3 exposes. Was an ASSUMPTION of 12 until 2026-10-09, when FM3-Edit's list
+ * (24 rows) was tested rather than believed: PP#13 and PP#24 read back the predicted bytes at marker+28/+50 and
+ * marker+292/+424, so the count is **24** and the whole range shares the two strides. Rows for an index with no
+ * observed offset (today: 14–23) report nulls rather than extrapolated values.
  */
-export const PP_SWITCH_COUNT = 12;
+export const PP_SWITCH_COUNT = 24;
 
 /**
  * The switch INDICES whose ACTION-CODE offset is observed, ascending — DERIVED from the offset table, so it
