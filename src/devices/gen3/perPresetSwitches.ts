@@ -75,25 +75,52 @@
 //     ("primary scene 1, secondary scene 1") and the record read +0=1, +2=1, which fits; a pair with two
 //     DIFFERENT scenes is still needed to prove which of the two offsets is which (an open item, and the
 //     reason this is written as "fits" rather than "confirmed").
-//   • categories that do not select a target leave +0 at ZERO and write elsewhere: Effect: Parameter wrote +2=2
-//     and +8=1; Effect: Change Channel wrote +0=2 with +4=1; one Preset: Increment row wrote +0=1 plus a u16
-//     511 at +6; Utility: Tuner, Looper and the Control-Switch row left the WHOLE record zero.
+//   • the rows that do NOT use +0 as a "which one" value, and where each of them writes instead: Effect:
+//     Parameter wrote +2=2 and +8=1 with +0 ZERO; one Preset: Increment row wrote a u16 511 at +6 (with +0=1);
+//     Utility: Tuner, Looper and the Control Switch row left the WHOLE record zero.
+//   • Effect: Change Channel is NOT in that list — it wrote +0=2 together with +4=1. Whether that 2 is the same
+//     FX-slot index a Bypass row carries (2 = "Chorus 1") is NOT measured, which is why the anchor NAME is not
+//     applied to it anywhere downstream (see `ppTargetLabel`).
 //   ⇒ So `targetIndex` below is the byte at record+0, and it is only the "location" for the categories that use
 //     it. It is left UNLOCATED for the four rows whose +0 read zero (PP#18 Effect: Parameter, PP#21 Utility,
 //     PP#22 Looper, PP#23 Control Switch): a zero is not an observation, and those rows refuse a target
-//     write rather than writing to a field their category does not use.
+//     write because that FIELD's offset was never located for them. The rule is per FIELD and keyed on the
+//     observation, NOT on the category: `patchPerPresetSwitch` never looks at the code, so an index measured
+//     only half-way stays half-writable even if it is later assigned a category that does use +0.
 //   ⇒ Decoding the per-category record layout (+2/+4/+6/+8) is OPEN — it needs one edit per category, and the
 //     owner has confirmed the assignments for 14–23 only in outline.
 //
-// THERE IS A **SECOND**, 24-ENTRY u16 ARRAY AT marker+52 (+52…+99, stride 2) — located by reading the sweep's
-// own bytes, not by fitting a stride: it held 1/2/3/4 at slots 16/17/18/20 and 0 in the other twenty slots. That
-// is the region whose four non-zero bytes were reported as an unexplained "gap" — they are one more STRUCTURED
-// array of the same 24-switch shape, not stray bytes. Its MEANING is OPEN: the candidates are the HOLD half of
-// the switch definitions (FM3-Edit shows a TAP and a HOLD assignment per switch, and this array is exactly 24
-// u16), or a function/mode index for the TAP assignment — the sweep's own slots differ by function where the
-// category is the same, but the owner's HOLD state at capture time was not recorded, so the two cannot be told
-// apart from this dump. The next round separates them directly (see HARDWARE-ROUND-PLAN.md): CONFIGURE HOLDs and
-// watch whether this array takes HOLD's category codes. Until then it is NOT decoded into a field here.
+// THERE IS A **SECOND** u16 ARRAY, ONE ENTRY PER SWITCH, STARTING AT marker+52 — and here is exactly how much
+// of that sentence is measured. OBSERVED: the sweep moved four bytes at marker+82/+84/+86/+90, reading 1/2/3/4
+// with +88 at 0. Those are slots 16/17/18/20 of a stride-2 array. INFERRED, not observed: that the array STARTS
+// at +52 (it is the next slot after the action-code array, which ends at +51) and that it is 24 entries wide.
+// The slot ALIGNMENT is what was read; the start and the width are the shape those four slots fit. Recovered by
+// reading the region with a tool, and the old "four unexplained bytes in the gap" report is retired by it.
+//
+// Its MEANING is OPEN, and the candidates are now three, not two:
+//   1. the HOLD half of the switch definitions (FM3-Edit shows a TAP *and* a HOLD per switch). The owner has
+//      since stated that ALL HOLDs were UNASSIGNED during that capture, and an unassigned HOLD encodes as 0 on
+//      the TAP side, so a HOLD-category mirror should have read zero throughout — this makes HOLD the WEAKEST
+//      candidate for these four slots, though it is not a positive proof that the array is not HOLD's home.
+//   2. a function/mode index for the TAP assignment. It fits the values (the slots differ by FUNCTION where the
+//      category is the same) but it does not explain why they ascend 1,2,3,4 in slot order.
+//   3. an ALLOCATION index — the slots that are non-zero are exactly the switches whose record uses bytes
+//      outside +0 (16: +2; 17: +4; 18: +2/+8; 20: +6/+7). Rows 14/15/19 (+0 only) and 21–23 (empty) read 0,
+//      so "a pointer handed out in slot order to the switches that need extra data" fits the ascending run
+//      without needing the function list at all. Candidate 2 predicts REPEATED values when two switches take
+//      the same function; candidate 3 predicts DISTINCT ascending ones. One dump tells them apart (pairs of the
+//      same function are in HARDWARE-ROUND-PLAN.md), and the plan also predicts where a HOLD half would live if
+//      it is not here: +100…+147, exactly 24 u16 between this array and the records at +148, zero in every
+//      capture to date.
+// Until a dump decides, this array is NOT decoded into a field here — and its four observed values ARE pinned
+// as expectations in check-switch-offsets.ts so they cannot drift unnoticed.
+//
+// NO ANCHOR NAME IS HANDED OUT FOR AN UNVERIFIED MODE. `PP_TARGET_ANCHORS` was measured with Effect: Bypass
+// selected, and the code 0x04 covers Bypass AND Change Channel AND Parameter, whose +0 means different things
+// (Parameter's +0 read ZERO). The mode is inside the record and is not decoded, so `ppTargetLabel` is a raw
+// lookup whose result is the byte's identity ONLY for a Bypass row: callers must not print it beside a row
+// whose mode they cannot read. The round that can lift this is written down in the plan (Change Channel on a
+// KNOWN block: if its +0 reads that block's slot index, the table covers the whole Effect category).
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** The marker pair that locates the block: u16 0x05F5 immediately followed by u16 0x0001. */
@@ -146,8 +173,9 @@ export const PP_TARGET_OFFSET = PP_MEASURED_OFFSETS[1]!.target!;
 /**
  * How many per-preset switches an FM3 exposes. Was an ASSUMPTION of 12 until 2026-10-09, when FM3-Edit's list
  * (24 rows) was tested rather than believed: PP#13 and PP#24 read back the predicted bytes at marker+28/+50 and
- * marker+292/+424, so the count is **24** and the whole range shares the two strides. Rows for an index with no
- * observed offset (today: 14–23) report nulls rather than extrapolated values.
+ * marker+292/+424, so the count is **24** and the whole range shares the two strides. Every index now has an
+ * OBSERVED action-code offset (the ten-function sweep located 14–23); four of them (18, 21, 22, 23) have no
+ * located record+0, and their target field reports null rather than an extrapolated value.
  */
 export const PP_SWITCH_COUNT = 24;
 
@@ -174,7 +202,11 @@ export const PP_REGION_BYTES =
 const u16 = (b: ArrayLike<number>, o: number): number => (b[o] ?? 0) | ((b[o + 1] ?? 0) << 8);
 
 /**
- * The measured target anchors — index → the FX-slot name the FM3's picker shows. 15 entries, each the result
+ * The measured target anchors — index → the FX-slot name the FM3's picker shows. **Measured with Effect:
+ * Bypass selected, and that matters**: the code 0x04 covers the whole Effect category, and `ppTargetLabel`
+ * cannot see which mode a row holds, so this name is the byte's identity ONLY for a row whose mode selects an
+ * FX slot. Callers must not print it beside a row whose mode they cannot read (see the "NO ANCHOR NAME IS
+ * HANDED OUT FOR AN UNVERIFIED MODE" note in the header). 15 entries, each the result
  * of one edit by the owner plus one read-only dump. An index NOT in this table is genuinely unlabelled:
  * report the number, never a guess (9–13 and 15–19 remain unmeasured — "FB Snd" among them is a candidate,
  * not a finding; 14 = "FB Rtn 2" was measured 2026-10-09). `Delay 2 = 8` confirms a family's INSTANCES are
@@ -187,6 +219,12 @@ export const PP_TARGET_ANCHORS: Readonly<Record<number, string>> = {
 };
 
 /** The name for a measured target index, or null when nobody has measured that index. */
+/**
+ * ALIAS CAVEAT: a raw lookup, not a verdict. It answers "what does the picker call index N" — NOT "this row's
+ * byte IS that block". The difference is the whole Effect category, whose three measured modes do not share the
+ * meaning of record+0 (Bypass: the FX slot; Parameter: zero there). Gate the display on the mode, never on the
+ * code alone.
+ */
 export function ppTargetLabel(index: number): string | null {
   return PP_TARGET_ANCHORS[index] ?? null;
 }
