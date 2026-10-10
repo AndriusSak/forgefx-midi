@@ -11,27 +11,31 @@
 //   • the block is located by the marker pair u16 `0x05F5` / u16 `0x0001`. SEARCH for it — never hard-code an
 //     offset: the doc recorded it "at ~11412" while preset 410's body holds it at **11420** (the body is
 //     compressed, so other content shifts it).
-//   • marker+4 = PP#1's u16 ACTION CODE, marker+6 = PP#2's (a two-capture differential moved each to the code
-//     the owner had configured there).
-//   • marker+148 = PP#1's TARGET BYTE (read 20 = "Filter 4", then 8 = "Delay 2", each matching an anchor
-//     measured independently on the wire).
-//   • the target is an index into the FM3's ALPHABETICALLY ORDERED FX-SLOT ENUMERATION, instances expanded.
-//     14 anchors, one edit + one dump each — see PP_TARGET_ANCHORS.
+//   • marker+4/6/8 = PP#1/PP#2/PP#3's u16 ACTION CODE (stride 2; each moved to the code the owner configured
+//     there — 0x04 "Effect: Bypass" on all three in the 2026-10-09 captures).
+//   • marker+148/160/172 = PP#1/PP#2/PP#3's TARGET BYTE (stride 12). PP#1 read 20 = "Filter 4", then 8 =
+//     "Delay 2"; PP#2 and PP#3 were CONFIRMED BY PREDICTION — set PP#2's target to Reverb 1 and marker+160 read
+//     51; set PP#3's to Chorus 1 and marker+172 read 2, both predicted before the measurement. An earlier
+//     unexplained 14 at marker+160 is therefore explained: it was PP#2's target with "FB Rtn 2" selected.
+//   • for an EFFECT action the target is an index into the FM3's ALPHABETICALLY ORDERED FX-SLOT ENUMERATION,
+//     instances expanded — every anchor here was measured with the action set to Effect: Bypass, so the table
+//     is an FX-SLOT table and naming a NON-effect action's target byte with it would be a claim nobody made
+//     (capture B has PP#2 = Scene: Select with its target byte reading 1, which is a scene number far more
+//     plausibly than "Cab 1"). 15 anchors, one edit + one dump each — see PP_TARGET_ANCHORS.
 //
 // REFUTED — do not re-derive:
 //   • the target index is the eid, the block-list order, the chain order, a grid cell, or a type id;
 //   • the target index is a position in a block roster (both candidate rosters in this repo reproduce 1 of 13
 //     anchors, because each needs the FM3's Amp block to contribute one entry and no table here says that);
-//   • **the target bytes are a flat one-per-switch array.** A capture with PP#2 fully configured — its action
-//     code DID move at marker+6 — left marker+149 untouched. Hence `PP_MEASURED_OFFSETS[2]` has no `target`.
+//   • **the target bytes are a flat ONE-BYTE-per-switch array.** A capture with PP#2 fully configured — its
+//     action code DID move at marker+6 — left marker+149 untouched. The action codes have a 2-byte stride; the
+//     TARGETS are 12 bytes apart (148/160/172), so the two fields are separate arrays with different strides.
 //   • two fitted alphabetical models were killed by their own predictions (Reverb 1 predicted 15, read 51;
 //     a grid position would have given ≈ 10).
 //
-// OPEN: the byte at marker+160 (it moved 0 → 1 → 14 across three captures, and 148 + 12 = 160) is the leading
-// candidate for PP#2's target byte with a 12-byte record stride — but that is ONE observation and 14 did not
-// match the alphabetical prediction for the block picked there, so it stays a HYPOTHESIS. Recording it as a
-// value would be the exact mistake this file exists to avoid. One edit settles it: set PP#2's target to a
-// KNOWN anchor (Reverb 1 = 51) and read marker+160.
+// MEASURED for indices 1-3 only. Indices 4+ are deliberately ABSENT: the 12-byte stride predicts PP#4's target
+// at marker+184, but a stride measured over three points is still a prediction for the fourth, and this file
+// exists to keep predictions out of the reading path. Extending is one line once an index is observed.
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** The marker pair that locates the block: u16 0x05F5 immediately followed by u16 0x0001. */
@@ -52,7 +56,8 @@ export interface PpMeasuredOffsets {
  */
 export const PP_MEASURED_OFFSETS: Readonly<Record<number, PpMeasuredOffsets>> = {
   1: { actionCode: 4, target: 148 },
-  2: { actionCode: 6 } // action code observed; its target byte is NOT located (see marker+160 above)
+  2: { actionCode: 6, target: 160 },
+  3: { actionCode: 8, target: 172 }
 };
 
 /** PP#1's offsets — kept as named constants because most call sites mean exactly PP#1. */
@@ -85,13 +90,14 @@ export const PP_REGION_BYTES =
 const u16 = (b: ArrayLike<number>, o: number): number => (b[o] ?? 0) | ((b[o + 1] ?? 0) << 8);
 
 /**
- * The measured target anchors — index → the FX-slot name the FM3's picker shows. 14 entries, each the result
+ * The measured target anchors — index → the FX-slot name the FM3's picker shows. 15 entries, each the result
  * of one edit by the owner plus one read-only dump. An index NOT in this table is genuinely unlabelled:
- * report the number, never a guess (indices 9–19 in particular are unbounded, and "FB Snd" among them is a
- * candidate, not a finding). `Delay 2 = 8` also confirms a family's INSTANCES are consecutive (7 → 8).
+ * report the number, never a guess (9–13 and 15–19 remain unmeasured — "FB Snd" among them is a candidate,
+ * not a finding; 14 = "FB Rtn 2" was measured 2026-10-09). `Delay 2 = 8` confirms a family's INSTANCES are
+ * consecutive (7 → 8), which makes FB Rtn 1 = 13 a PREDICTION — do not add it until it is observed.
  */
 export const PP_TARGET_ANCHORS: Readonly<Record<number, string>> = {
-  0: 'Amp 1', 1: 'Cab 1', 2: 'Chorus 1', 3: 'Chorus 2', 7: 'Delay 1', 8: 'Delay 2',
+  0: 'Amp 1', 1: 'Cab 1', 2: 'Chorus 1', 3: 'Chorus 2', 7: 'Delay 1', 8: 'Delay 2', 14: 'FB Rtn 2',
   20: 'Filter 4', 25: 'Gate 1', 27: 'GEQ 1', 29: 'In 1', 31: 'Looper', 32: 'Megatap 1',
   38: 'MultDly 1', 51: 'Reverb 1'
 };
@@ -125,7 +131,12 @@ export interface PerPresetSwitch {
   action: string | null;
   /** Target byte — null when its offset has not been observed (never read from a guessed position). */
   targetIndex: number | null;
-  /** The FX-slot name for that index, or null when unlabelled / unread. */
+  /**
+   * The FX-SLOT name for that index, or null when unlabelled / unread. MEANINGFUL FOR AN EFFECT ACTION ONLY:
+   * the anchors were all measured with Effect: Bypass selected, so a caller must not present this name for a
+   * row whose action is something else (a scene action's target byte is not an FX slot). The byte itself is
+   * always the observed value; the INTERPRETATION is action-dependent.
+   */
   targetLabel: string | null;
   /** 'measured' = both offsets observed · 'partial' = action code only · 'unknown' = neither. */
   confidence: PpRowConfidence;
