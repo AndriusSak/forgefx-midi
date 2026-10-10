@@ -8,8 +8,8 @@
 //
 // `realSlice` is byte-identical to body[11380..11600] of the unconfigured fixture: 220 bytes, all zero
 // except the marker pair at +40 (absolute 11420). `populatedSlice` mirrors the SECOND capture (B) — the
-// marker at region offset 8, the three action codes at marker+4/6/8 and the three target bytes at
-// marker+148/160/172.
+// marker at region offset 8, the five action codes at marker+4/6/8/10/12 and the five target bytes at
+// marker+148/160/172/184/196. It leaves PP#3–PP#5 reading 0, which is exactly what capture B holds.
 import {
   findPerPresetSwitchBlock,
   parsePerPresetSwitches,
@@ -28,9 +28,14 @@ import {
 
 export const PER_PRESET_SWITCH_CASE_COUNT = 17;
 
-/** body[11380..11600] of preset 410, verbatim: zeros with the 0x05F5/0x0001 marker at region offset 40. */
+/**
+ * body[11380..11600] of preset 410 — the marker pair at region offset 40 (absolute 11420) and zeros
+ * everywhere else — followed by the zeros the REAL body holds past that window: the decoder's region now
+ * reaches marker+198 (the last measured target byte at 196), so a slice that stopped at 220 would be refused
+ * by the parser's "the observed offsets must fit inside the body" guard. The body itself is 14,476 bytes.
+ */
 function realSlice(): Uint8Array {
-  const s = new Uint8Array(220);
+  const s = new Uint8Array(40 + PP_REGION_BYTES + 8);
   s[40] = 0xf5; s[41] = 0x05;   // u16 0x05F5
   s[42] = 0x01; s[43] = 0x00;   // u16 0x0001
   return s;
@@ -45,7 +50,10 @@ function realSlice(): Uint8Array {
 const POPULATED_MARKER_AT = 8;
 
 function populatedSlice(): Uint8Array {
-  const s = new Uint8Array(200);
+  // 8 (marker) + PP_REGION_BYTES (198, one u16 past the last measured offset 196) with a little room, so the
+  // parser's "the observed offsets must fit inside the body" guard does not refuse the fixture itself. This
+  // is the guard doing its job: enlarging the offset table shrank every valid slice.
+  const s = new Uint8Array(224);
   s[POPULATED_MARKER_AT] = 0xf5; s[POPULATED_MARKER_AT + 1] = 0x05; s[POPULATED_MARKER_AT + 2] = 0x01; s[POPULATED_MARKER_AT + 3] = 0x00; // marker (region +8)
   s[12] = 0x04;  // PP#1 action code (marker+4) — Effect: Bypass
   s[14] = 0x03;  // PP#2 action code (marker+6) — Scene: Select
@@ -68,7 +76,7 @@ export function runPerPresetSwitchTests(): void {
 
   t('the marker is FOUND, not hard-coded — the block moves between presets', () => {
     eq(findPerPresetSwitchBlock(realSlice()), 40, 'marker found at the fixture region offset');
-    const shifted = new Uint8Array(240);
+    const shifted = new Uint8Array(realSlice().length + 32);
     shifted.set(realSlice(), 16); // the same block 16 bytes later
     eq(findPerPresetSwitchBlock(shifted), 56, 'and it is found wherever it sits');
   });
@@ -101,7 +109,9 @@ export function runPerPresetSwitchTests(): void {
     const pp3 = page.switches[2]!;
     eq(pp3.confidence, 'measured', 'PP#3: both offsets observed (action code at marker+8, target at marker+172)');
     eq(pp3.actionCode, 0, 'it is unassigned in this capture');
-    for (const s of page.switches.slice(3)) {
+    eq(page.switches[3]!.confidence, 'measured', 'PP#4 too — marker+10 and marker+184');
+    eq(page.switches[4]!.confidence, 'measured', 'and PP#5 — marker+12 and marker+196');
+    for (const s of page.switches.slice(5)) {
       eq(s.confidence, 'unknown', `PP#${s.index} has no observed offset`);
       eq(s.actionCode, null, `PP#${s.index} reports no action code`);
       eq(s.targetIndex, null, `PP#${s.index} reports no target`);
@@ -149,7 +159,7 @@ export function runPerPresetSwitchTests(): void {
   t('an index past the MEASURED ones is REFUSED — its offset has never been observed', () => {
     const body = realSlice();
     const before = Uint8Array.from(body);
-    eq(patchPerPresetSwitch(body, 4, { targetIndex: 51 }), false, 'PP#4 is refused');
+    eq(patchPerPresetSwitch(body, 6, { targetIndex: 51 }), false, 'PP#6 is refused (PP#1–PP#5 are measured)');
     eq(patchPerPresetSwitch(body, 99, { targetIndex: 51 }), false, 'and so is an out-of-range index');
     eq(Array.from(body).join(','), Array.from(before).join(','), 'and NOTHING was written');
   });
@@ -190,10 +200,10 @@ export function runPerPresetSwitchTests(): void {
 
   t('the page reports WHICH indices the evidence reaches, per field', () => {
     const page = parsePerPresetSwitches(populatedSlice())!;
-    eq(page.evidence.actionCodeIndices.join(','), '1,2,3', 'the action-code offsets observed are PP#1, PP#2 and PP#3');
-    eq(page.evidence.targetByteIndices.join(','), '1,2,3', 'and the located target bytes are the same three indices');
-    // and the row-level view stays as conservative as the evidence: three measured, the rest not.
-    eq(page.switches.filter((s) => s.confidence === 'measured').length, 3, 'three rows are marked measured');
+    eq(page.evidence.actionCodeIndices.join(','), '1,2,3,4,5', 'the action-code offsets observed are PP#1 through PP#5');
+    eq(page.evidence.targetByteIndices.join(','), '1,2,3,4,5', 'and the located target bytes are the same five indices');
+    // and the row-level view stays as conservative as the evidence: five measured, the rest not.
+    eq(page.switches.filter((s) => s.confidence === 'measured').length, 5, 'five rows are marked measured');
   });
 
   t('the evidence LISTS are DERIVED from the offset table (no second hand-kept number)', () => {
@@ -202,11 +212,11 @@ export function runPerPresetSwitchTests(): void {
       .filter((i) => PP_MEASURED_OFFSETS[i]!.target !== undefined).sort((a, b) => a - b);
     eq(PP_ACTION_CODE_INDICES.join(','), actionFromTable.join(','), 'action-code indices mirror the table');
     eq(PP_TARGET_BYTE_INDICES.join(','), targetFromTable.join(','), 'target-byte indices mirror the table');
-    eq(PP_TARGET_BYTE_INDICES.join(','), '1,2,3', 'and today that is PP#1–PP#3 (indices 4+ are NOT extrapolated)');
+    eq(PP_TARGET_BYTE_INDICES.join(','), '1,2,3,4,5', 'and today that is PP#1–PP#5 (indices 6+ are NOT extrapolated)');
     // The page carries the LISTS, never a count — the shape a reader can render without assuming contiguity.
     const page = parsePerPresetSwitches(populatedSlice())!;
-    eq(page.evidence.actionCodeIndices.join(','), '1,2,3', 'the page carries the action-code indices');
-    eq(page.evidence.targetByteIndices.join(','), '1,2,3', 'and the target-byte indices');
+    eq(page.evidence.actionCodeIndices.join(','), '1,2,3,4,5', 'the page carries the action-code indices');
+    eq(page.evidence.targetByteIndices.join(','), '1,2,3,4,5', 'and the target-byte indices');
   });
 
   t('writing PP#1 leaves PP#2 untouched', () => {
@@ -237,8 +247,10 @@ export function runPerPresetSwitchTests(): void {
     eq(ppWritable(2).target, true, 'and its target byte — located at marker+160 on 2026-10-09');
     eq(ppWritable(3).any, true, 'PP#3 has an observed offset too');
     eq(ppWritable(3).target, true, 'both fields, from marker+8 and marker+172');
-    eq(ppWritable(4).any, false, 'PP#4 has no observed offset at all');
-    eq(ppWritable(4).target, false, 'so nothing about it may be written');
+    eq(ppWritable(4).target, true, 'PP#4 as well — marker+10 and marker+184');
+    eq(ppWritable(5).target, true, 'and PP#5 — marker+12 and marker+196');
+    eq(ppWritable(6).any, false, 'PP#6 has no observed offset at all');
+    eq(ppWritable(6).target, false, 'so nothing about it may be written');
   });
 
   t('a patch with NO fields is refused, and a refused patch writes NOTHING', () => {
@@ -246,7 +258,7 @@ export function runPerPresetSwitchTests(): void {
     const before = Array.from(body).join(',');
     eq(patchPerPresetSwitch(body, 1, {}), false, 'an empty patch is refused (it is a no-op, not a success)');
     // an index with no observed offset at all: refused whole, not half-applied
-    eq(patchPerPresetSwitch(body, 4, { actionCode: 0x04, targetIndex: 51 }), false, 'PP#4 is refused');
+    eq(patchPerPresetSwitch(body, 6, { actionCode: 0x04, targetIndex: 51 }), false, 'PP#6 is refused');
     eq(Array.from(body).join(','), before, 'and NOTHING was written — no partial patch');
   });
 
@@ -256,7 +268,10 @@ export function runPerPresetSwitchTests(): void {
     eq(PP_MEASURED_OFFSETS[2]!.target, 160, 'PP#2 target offset — MEASURED by prediction, not by stride arithmetic');
     eq(PP_MEASURED_OFFSETS[3]!.actionCode, 8, 'PP#3 action code — stride 2 held for a third slot');
     eq(PP_MEASURED_OFFSETS[3]!.target, 172, 'PP#3 target — stride 12 held for a third slot');
-    eq(PP_MEASURED_OFFSETS[4], undefined, 'and PP#4 is deliberately ABSENT: a stride over three points is still a prediction');
+    eq(PP_MEASURED_OFFSETS[4]!.target, 184, 'PP#4 target — 148 + 12×4, PREDICTED then read');
+    eq(PP_MEASURED_OFFSETS[5]!.actionCode, 12, 'PP#5 action code — 4 + 2×4');
+    eq(PP_MEASURED_OFFSETS[5]!.target, 196, 'PP#5 target — 148 + 12×5');
+    eq(PP_MEASURED_OFFSETS[6], undefined, 'and PP#6 is deliberately ABSENT: a stride over five points is STILL a prediction for the sixth');
   });
 
   if (failures.length) throw new Error(`per-preset switches: ${failures.length} case(s) failed\n  - ${failures.join('\n  - ')}`);

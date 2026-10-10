@@ -11,12 +11,14 @@
 //   • the block is located by the marker pair u16 `0x05F5` / u16 `0x0001`. SEARCH for it — never hard-code an
 //     offset: the doc recorded it "at ~11412" while preset 410's body holds it at **11420** (the body is
 //     compressed, so other content shifts it).
-//   • marker+4/6/8 = PP#1/PP#2/PP#3's u16 ACTION CODE (stride 2; each moved to the code the owner configured
-//     there — 0x04 "Effect: Bypass" on all three in the 2026-10-09 captures).
-//   • marker+148/160/172 = PP#1/PP#2/PP#3's TARGET BYTE (stride 12). PP#1 read 20 = "Filter 4", then 8 =
-//     "Delay 2"; PP#2 and PP#3 were CONFIRMED BY PREDICTION — set PP#2's target to Reverb 1 and marker+160 read
-//     51; set PP#3's to Chorus 1 and marker+172 read 2, both predicted before the measurement. An earlier
-//     unexplained 14 at marker+160 is therefore explained: it was PP#2's target with "FB Rtn 2" selected.
+//   • marker+4/6/8/10/12 = PP#1..PP#5's u16 ACTION CODE (stride 2; each moved to the code the owner
+//     configured there — 0x04 "Effect: Bypass" on all five in the 2026-10-09 captures).
+//   • marker+148/160/172/184/196 = PP#1..PP#5's TARGET BYTE (stride 12). PP#1 read 20 = "Filter 4", then
+//     8 = "Delay 2"; indices 2, 3, 4 and 5 were CONFIRMED BY PREDICTION — the expected value was stated
+//     BEFORE the capture was read and read back exactly (PP#2 → Reverb 1 read 51 at 160; PP#3 → Chorus 1 read
+//     2 at 172; PP#4 → Delay 2 read 8 at 184 WITH its action code at 10; PP#5 → Reverb 1 read 51 at 196 with
+//     its action code at 12). An earlier unexplained 14 at marker+160 is therefore explained: it was PP#2's
+//     target with "FB Rtn 2" selected.
 //   • for an EFFECT action the target is an index into the FM3's ALPHABETICALLY ORDERED FX-SLOT ENUMERATION,
 //     instances expanded — every anchor here was measured with the action set to Effect: Bypass, so the table
 //     is an FX-SLOT table and naming a NON-effect action's target byte with it would be a claim nobody made
@@ -33,9 +35,11 @@
 //   • two fitted alphabetical models were killed by their own predictions (Reverb 1 predicted 15, read 51;
 //     a grid position would have given ≈ 10).
 //
-// MEASURED for indices 1-3 only. Indices 4+ are deliberately ABSENT: the 12-byte stride predicts PP#4's target
-// at marker+184, but a stride measured over three points is still a prediction for the fourth, and this file
-// exists to keep predictions out of the reading path. Extending is one line once an index is observed.
+// MEASURED for indices 1-5. PP#6..PP#12 are deliberately ABSENT even though the two strides now hold over
+// five consecutive indices (4 = 148 + 12×4, 196 = 148 + 12×5 exactly): a stride measured over five points
+// still does not OBSERVE the sixth, and this file exists to keep predictions out of the reading path. The
+// shape of the region supports it — 12 entries would put the last target at marker+280 — so one more capture
+// round (PP#6..PP#12 set to known anchors) turns the rest into the same one-line data entry.
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** The marker pair that locates the block: u16 0x05F5 immediately followed by u16 0x0001. */
@@ -57,7 +61,9 @@ export interface PpMeasuredOffsets {
 export const PP_MEASURED_OFFSETS: Readonly<Record<number, PpMeasuredOffsets>> = {
   1: { actionCode: 4, target: 148 },
   2: { actionCode: 6, target: 160 },
-  3: { actionCode: 8, target: 172 }
+  3: { actionCode: 8, target: 172 },
+  4: { actionCode: 10, target: 184 },
+  5: { actionCode: 12, target: 196 }
 };
 
 /** PP#1's offsets — kept as named constants because most call sites mean exactly PP#1. */
