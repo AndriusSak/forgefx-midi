@@ -27,7 +27,7 @@ import {
   PP_SWITCH_COUNT,
 } from '../../../src/devices/gen3/index.js';
 
-export const PER_PRESET_SWITCH_CASE_COUNT = 19;
+export const PER_PRESET_SWITCH_CASE_COUNT = 20;
 
 /**
  * body[11380..11600] of preset 410 — the marker pair at region offset 40 (absolute 11420) and zeros
@@ -290,7 +290,7 @@ export function runPerPresetSwitchTests(): void {
     eq(PP_ACTION_CATEGORIES[0x02], 'Preset', '0x02 is the Preset family');
     eq(PP_ACTION_CATEGORIES[0x03], 'Scene', '0x03 the Scene family');
     eq(PP_ACTION_CATEGORIES[0x04], 'Effect', '0x04 the Effect family — bypass, channel and parameter share it');
-    eq(PP_ACTION_CATEGORIES[0x05], 'Tuner', '0x05 was assigned Tuner');
+    eq(PP_ACTION_CATEGORIES[0x05], 'Utility', '0x05 is UTILITY — the switch was set to Utility: Tuner, and FM3-Edit has no Tuner CATEGORY (Tuner is a function inside Utility)');
     eq(PP_ACTION_CATEGORIES[0x08], 'Looper', '0x08 was assigned Looper');
     eq(ppActionName(0x04), 'Effect (category — the mode is in the record)', 'and the display name says so rather than inventing a function');
     eq(ppActionName(0x02), 'Preset (category — the mode is in the record)', 'likewise for Preset');
@@ -300,8 +300,32 @@ export function runPerPresetSwitchTests(): void {
     eq(ppActionName(0), 'unassigned', 'and 0 still reads as unassigned');
   });
 
+  t('every named code sits on its category\'s POSITION in FM3-Edit\'s own list (measured codes, editor list)', () => {
+    // The owner photographed the editor's TAP "Category" dropdown, so the code space is no longer a guess: the
+    // list is Unassigned · Bank · Preset · Scene · Effect · Utility · Layout · Control Switch · Looper ·
+    // Per-Preset · View · Setlist · Song · Song Section. Counted FROM ZERO, every code this project measured
+    // (0x02/0x03/0x04/0x05/0x07/0x08) lands on its own category's position — which is also how 0x05 was caught
+    // being Utility rather than Tuner: FM3-Edit has no Tuner CATEGORY at all.
+    // The names COME FROM the editor, like the FX-slot anchors; the codes are measured. This test keeps the two
+    // consistent, so a future code cannot be named something the editor's own list contradicts.
+    const EDITOR_CATEGORY_ORDER = [
+      'Unassigned', 'Bank', 'Preset', 'Scene', 'Effect', 'Utility', 'Layout', 'Control Switch', 'Looper',
+      'Per-Preset', 'View', 'Setlist', 'Song', 'Song Section'
+    ];
+    for (const [code, name] of Object.entries(PP_ACTION_CATEGORIES)) {
+      eq(name, EDITOR_CATEGORY_ORDER[Number(code)]!, `0x0${Number(code).toString(16)} is "${EDITOR_CATEGORY_ORDER[Number(code)]}" at that position`);
+    }
+    // The codes this file does NOT carry are predictions (Bank 0x01, Layout 0x06, Per-Preset 0x09, View 0x0A,
+    // Setlist 0x0B, Song 0x0C, Song Section 0x0D). They must stay unnamed until a capture confirms them:
+    for (const predicted of [0x01, 0x06, 0x09, 0x0a, 0x0b, 0x0c, 0x0d]) {
+      eq(PP_ACTION_CATEGORIES[predicted], undefined, `0x0${predicted.toString(16)} is NOT named yet — the editor's list predicts it and a dump has to confirm it`);
+      eq(ppActionName(predicted), null, 'and it reports no name rather than the prediction');
+    }
+    eq(EDITOR_CATEGORY_ORDER.length, 14, 'the editor list has fourteen entries including Unassigned');
+  });
+
   t('a category that does not write record+0 leaves that field UNLOCATED — the bound is per FIELD', () => {
-    // PP#18 (Effect: Parameter), PP#21 (Tuner), PP#22 (Looper) and PP#23 (Control Switch) left the first
+    // PP#18 (Effect: Parameter), PP#21 (Utility: Tuner), PP#22 (Looper) and PP#23 (Control Switch) left the first
     // byte of their 12-byte record at zero; PP#18 put its values at +2 and +8 instead. A zero is not an
     // observation, so the codec keeps reporting their code and REFUSES a target write, rather than offering a
     // field their category does not use. PP#14's record+0 DID hold a value (3 = a scene number, not an FX slot).

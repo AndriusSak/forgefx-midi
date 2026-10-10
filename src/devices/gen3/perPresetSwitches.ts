@@ -51,8 +51,21 @@
 // 2. **The action code names the CATEGORY, not the function.** Effect: Bypass, Effect: Change Channel and
 //    Effect: Parameter ALL read 0x04; Scene: Select and the other scene flavour both read 0x03; Preset: Select
 //    and Preset: Increment both read 0x02. Measured codes: `0x02` Preset · `0x03` Scene · `0x04` Effect ·
-//    `0x05` Tuner · `0x07` Control Switch (owner-confirmed) · `0x08` Looper. The MODE
+//    `0x05` Utility · `0x07` Control Switch (owner-confirmed) · `0x08` Looper. The MODE
 //    lives inside the 12-byte record (see below), which is why this file no longer claims "0x04 = Bypass".
+//
+//    **THE CODE IS THE CATEGORY'S POSITION IN FM3-EDIT'S OWN CATEGORY LIST — measured-codes-vs-list, 6 for 6.**
+//    The owner photographed the editor's TAP "Category" dropdown (2026-10-09): Unassigned · Bank · Preset ·
+//    Scene · Effect · Utility · Layout · Control Switch · Looper · Per-Preset · View · Setlist · Song · Song
+//    Section. Counted from zero that is 0·1·2·3·4·5·6·7·8·9·10·11·12·13 — and every code this project has
+//    MEASURED sits exactly on its category's position: 0x02 Preset, 0x03 Scene, 0x04 Effect, 0x05 Utility,
+//    0x07 Control Switch, 0x08 Looper. It also corrected a name: the switch at PP#21 was assigned **Utility:
+//    Tuner**, and its code read 0x05 — so 0x05 is the Utility CATEGORY and "Tuner" was one of its functions,
+//    which is why no "Tuner" code exists in the list above.
+//    ⇒ **The remaining codes are PREDICTIONS, not measurements, and this file does not carry them**: Bank 0x01,
+//    Layout 0x06, Per-Preset 0x09, View 0x0A, Setlist 0x0B, Song 0x0C, Song Section 0x0D. They are written down
+//    as the positive control for the next capture in the hardware plan, and `PP_ACTION_CATEGORIES` stays
+//    measured-only until a dump confirms them (an unmeasured code returns no name, never a guessed one).
 //
 // THE RECORD IS 12 BYTES WITH CATEGORY-DEPENDENT FIELDS — measured, per switch, from that same capture:
 //   • record+0 carries the "which one" value for the target-selecting categories: the FX-slot index for
@@ -64,13 +77,23 @@
 //     reason this is written as "fits" rather than "confirmed").
 //   • categories that do not select a target leave +0 at ZERO and write elsewhere: Effect: Parameter wrote +2=2
 //     and +8=1; Effect: Change Channel wrote +0=2 with +4=1; one Preset: Increment row wrote +0=1 plus a u16
-//     511 at +6; Tuner, Looper and the Control-Switch row left the WHOLE record zero.
+//     511 at +6; Utility: Tuner, Looper and the Control-Switch row left the WHOLE record zero.
 //   ⇒ So `targetIndex` below is the byte at record+0, and it is only the "location" for the categories that use
-//     it. It is left UNLOCATED for the four rows whose +0 read zero (PP#18 Effect: Parameter, PP#21 Tuner,
+//     it. It is left UNLOCATED for the four rows whose +0 read zero (PP#18 Effect: Parameter, PP#21 Utility,
 //     PP#22 Looper, PP#23 Control Switch): a zero is not an observation, and those rows refuse a target
 //     write rather than writing to a field their category does not use.
 //   ⇒ Decoding the per-category record layout (+2/+4/+6/+8) is OPEN — it needs one edit per category, and the
 //     owner has confirmed the assignments for 14–23 only in outline.
+//
+// THERE IS A **SECOND**, 24-ENTRY u16 ARRAY AT marker+52 (+52…+99, stride 2) — located by reading the sweep's
+// own bytes, not by fitting a stride: it held 1/2/3/4 at slots 16/17/18/20 and 0 in the other twenty slots. That
+// is the region whose four non-zero bytes were reported as an unexplained "gap" — they are one more STRUCTURED
+// array of the same 24-switch shape, not stray bytes. Its MEANING is OPEN: the candidates are the HOLD half of
+// the switch definitions (FM3-Edit shows a TAP and a HOLD assignment per switch, and this array is exactly 24
+// u16), or a function/mode index for the TAP assignment — the sweep's own slots differ by function where the
+// category is the same, but the owner's HOLD state at capture time was not recorded, so the two cannot be told
+// apart from this dump. The next round separates them directly (see HARDWARE-ROUND-PLAN.md): CONFIGURE HOLDs and
+// watch whether this array takes HOLD's category codes. Until then it is NOT decoded into a field here.
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** The marker pair that locates the block: u16 0x05F5 immediately followed by u16 0x0001. */
@@ -110,7 +133,7 @@ export const PP_MEASURED_OFFSETS: Readonly<Record<number, PpMeasuredOffsets>> = 
   18: { actionCode: 38 },                // Effect: Parameter → +0 read ZERO, values sit at +2/+8 (see the header)
   19: { actionCode: 40, target: 364 },   // Preset: Select → record+0 read 28 (a PRESET number)
   20: { actionCode: 42, target: 376 },   // Preset: Increment → +0=1 with a u16 511 at +6
-  21: { actionCode: 44 },                // Tuner → the whole record read zero
+  21: { actionCode: 44 },                // Utility: Tuner → the whole record read zero
   22: { actionCode: 46 },                // Looper → the whole record read zero
   23: { actionCode: 48 },                // Control Switch → the whole record read zero
   24: { actionCode: 50, target: 424 }
@@ -183,7 +206,7 @@ export const PP_ACTION_CATEGORIES: Readonly<Record<number, string>> = {
   0x02: 'Preset',
   0x03: 'Scene',
   0x04: 'Effect',
-  0x05: 'Tuner',
+  0x05: 'Utility',
   0x07: 'Control Switch',
   0x08: 'Looper'
 };
