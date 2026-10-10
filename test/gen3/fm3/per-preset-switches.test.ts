@@ -26,7 +26,7 @@ import {
   PP_SWITCH_COUNT,
 } from '../../../src/devices/gen3/index.js';
 
-export const PER_PRESET_SWITCH_CASE_COUNT = 17;
+export const PER_PRESET_SWITCH_CASE_COUNT = 18;
 
 /**
  * body[11380..11600] of preset 410 — the marker pair at region offset 40 (absolute 11420) and zeros
@@ -50,10 +50,11 @@ function realSlice(): Uint8Array {
 const POPULATED_MARKER_AT = 8;
 
 function populatedSlice(): Uint8Array {
-  // 8 (marker) + PP_REGION_BYTES (198, one u16 past the last measured offset 196) with a little room, so the
-  // parser's "the observed offsets must fit inside the body" guard does not refuse the fixture itself. This
-  // is the guard doing its job: enlarging the offset table shrank every valid slice.
-  const s = new Uint8Array(224);
+  // 8 (marker) + PP_REGION_BYTES (270, one u16 past the last measured offset 268) with a little room, so the
+  // parser's "the observed offsets must fit inside the body" guard does not refuse the fixture itself. This is
+  // the guard doing its job: every enlargement of the offset table shrinks what counts as a valid slice, and a
+  // fixture that stops being valid reads as a decode regression.
+  const s = new Uint8Array(320);
   s[POPULATED_MARKER_AT] = 0xf5; s[POPULATED_MARKER_AT + 1] = 0x05; s[POPULATED_MARKER_AT + 2] = 0x01; s[POPULATED_MARKER_AT + 3] = 0x00; // marker (region +8)
   s[12] = 0x04;  // PP#1 action code (marker+4) — Effect: Bypass
   s[14] = 0x03;  // PP#2 action code (marker+6) — Scene: Select
@@ -111,11 +112,9 @@ export function runPerPresetSwitchTests(): void {
     eq(pp3.actionCode, 0, 'it is unassigned in this capture');
     eq(page.switches[3]!.confidence, 'measured', 'PP#4 too — marker+10 and marker+184');
     eq(page.switches[4]!.confidence, 'measured', 'and PP#5 — marker+12 and marker+196');
-    for (const s of page.switches.slice(5)) {
-      eq(s.confidence, 'unknown', `PP#${s.index} has no observed offset`);
-      eq(s.actionCode, null, `PP#${s.index} reports no action code`);
-      eq(s.targetIndex, null, `PP#${s.index} reports no target`);
-    }
+    eq(page.switches[10]!.confidence, 'measured', 'the table reaches PP#11 (marker+24 / marker+268)');
+    eq(page.switches[11]!.confidence, 'measured', 'and PP#12 (marker+26 / marker+280) — the range is complete');
+    eq(page.switches.length, PP_SWITCH_COUNT, 'twelve rows, one per switch the capture measured');
   });
 
   t('patch → parse round trip at the DOCUMENTED offsets (self-consistency, not device semantics)', () => {
@@ -159,7 +158,7 @@ export function runPerPresetSwitchTests(): void {
   t('an index past the MEASURED ones is REFUSED — its offset has never been observed', () => {
     const body = realSlice();
     const before = Uint8Array.from(body);
-    eq(patchPerPresetSwitch(body, 6, { targetIndex: 51 }), false, 'PP#6 is refused (PP#1–PP#5 are measured)');
+    eq(patchPerPresetSwitch(body, 13, { targetIndex: 51 }), false, 'PP#13 is refused — past the measured switch count');
     eq(patchPerPresetSwitch(body, 99, { targetIndex: 51 }), false, 'and so is an out-of-range index');
     eq(Array.from(body).join(','), Array.from(before).join(','), 'and NOTHING was written');
   });
@@ -200,10 +199,9 @@ export function runPerPresetSwitchTests(): void {
 
   t('the page reports WHICH indices the evidence reaches, per field', () => {
     const page = parsePerPresetSwitches(populatedSlice())!;
-    eq(page.evidence.actionCodeIndices.join(','), '1,2,3,4,5', 'the action-code offsets observed are PP#1 through PP#5');
-    eq(page.evidence.targetByteIndices.join(','), '1,2,3,4,5', 'and the located target bytes are the same five indices');
-    // and the row-level view stays as conservative as the evidence: five measured, the rest not.
-    eq(page.switches.filter((s) => s.confidence === 'measured').length, 5, 'five rows are marked measured');
+    eq(page.evidence.actionCodeIndices.join(','), '1,2,3,4,5,6,7,8,9,10,11,12', 'the action-code offsets observed are ALL twelve switches');
+    eq(page.evidence.targetByteIndices.join(','), '1,2,3,4,5,6,7,8,9,10,11,12', 'and the located target bytes are the same twelve indices');
+    eq(page.switches.filter((s) => s.confidence === 'measured').length, 12, 'so every row is marked measured');
   });
 
   t('the evidence LISTS are DERIVED from the offset table (no second hand-kept number)', () => {
@@ -212,11 +210,11 @@ export function runPerPresetSwitchTests(): void {
       .filter((i) => PP_MEASURED_OFFSETS[i]!.target !== undefined).sort((a, b) => a - b);
     eq(PP_ACTION_CODE_INDICES.join(','), actionFromTable.join(','), 'action-code indices mirror the table');
     eq(PP_TARGET_BYTE_INDICES.join(','), targetFromTable.join(','), 'target-byte indices mirror the table');
-    eq(PP_TARGET_BYTE_INDICES.join(','), '1,2,3,4,5', 'and today that is PP#1–PP#5 (indices 6+ are NOT extrapolated)');
+    eq(PP_TARGET_BYTE_INDICES.join(','), '1,2,3,4,5,6,7,8,9,10,11,12', 'and that is every switch the device has (PP_SWITCH_COUNT), each one measured');
     // The page carries the LISTS, never a count — the shape a reader can render without assuming contiguity.
     const page = parsePerPresetSwitches(populatedSlice())!;
-    eq(page.evidence.actionCodeIndices.join(','), '1,2,3,4,5', 'the page carries the action-code indices');
-    eq(page.evidence.targetByteIndices.join(','), '1,2,3,4,5', 'and the target-byte indices');
+    eq(page.evidence.actionCodeIndices.join(','), '1,2,3,4,5,6,7,8,9,10,11,12', 'the page carries the action-code indices');
+    eq(page.evidence.targetByteIndices.join(','), '1,2,3,4,5,6,7,8,9,10,11,12', 'and the target-byte indices');
   });
 
   t('writing PP#1 leaves PP#2 untouched', () => {
@@ -249,8 +247,11 @@ export function runPerPresetSwitchTests(): void {
     eq(ppWritable(3).target, true, 'both fields, from marker+8 and marker+172');
     eq(ppWritable(4).target, true, 'PP#4 as well — marker+10 and marker+184');
     eq(ppWritable(5).target, true, 'and PP#5 — marker+12 and marker+196');
-    eq(ppWritable(6).any, false, 'PP#6 has no observed offset at all');
-    eq(ppWritable(6).target, false, 'so nothing about it may be written');
+    eq(ppWritable(11).target, true, 'PP#11 — marker+24 and marker+268');
+    eq(ppWritable(12).any, true, 'PP#12 — marker+26 and marker+280: the whole range is writable');
+    eq(ppWritable(12).target, true, 'on both fields');
+    eq(ppWritable(13).any, false, 'PP#13 does not exist on this device (PP_SWITCH_COUNT)');
+    eq(ppWritable(13).target, false, 'so nothing may be written past the measured range');
   });
 
   t('a patch with NO fields is refused, and a refused patch writes NOTHING', () => {
@@ -258,8 +259,30 @@ export function runPerPresetSwitchTests(): void {
     const before = Array.from(body).join(',');
     eq(patchPerPresetSwitch(body, 1, {}), false, 'an empty patch is refused (it is a no-op, not a success)');
     // an index with no observed offset at all: refused whole, not half-applied
-    eq(patchPerPresetSwitch(body, 6, { actionCode: 0x04, targetIndex: 51 }), false, 'PP#6 is refused');
+    eq(patchPerPresetSwitch(body, 13, { actionCode: 0x04, targetIndex: 51 }), false, 'PP#13 is refused');
     eq(Array.from(body).join(','), before, 'and NOTHING was written — no partial patch');
+  });
+
+  t('the TWELFTH slot exists and is measured — and nothing is claimed past it', () => {
+    // The seventh capture filled the whole range (PP#6..PP#12, seven distinct anchors) and PP#12's own two
+    // bytes read back the predicted values: the u16 at marker+26 = 0x04 and the target byte at marker+280 = 3
+    // ("Chorus 2"). That is what makes the twelve-entry count a MEASUREMENT rather than an assumption.
+    // NOTE for whoever reads a raw window by eye: an EARLIER hand-read of this same window called marker+26
+    // zero and nearly left PP#12 out of the table — `check-switch-offsets.ts` caught it because the prediction
+    // was written down as `want: 0x04`. Read the bytes with the tool, not by counting columns.
+    const body = populatedSlice();
+    body[POPULATED_MARKER_AT + 26] = 0x04;   // PP#12 action code
+    body[POPULATED_MARKER_AT + 280] = 3;     // PP#12 target byte
+    const page = parsePerPresetSwitches(body)!;
+    const pp12 = page.switches[11]!;
+    eq(pp12.index, 12, 'the twelfth row exists');
+    eq(pp12.confidence, 'measured', 'with both offsets observed');
+    eq(pp12.actionCode, 0x04, 'its action code reads 0x04');
+    eq(pp12.targetIndex, 3, 'and its target 3 = "Chorus 2"');
+    eq(pp12.targetLabel, 'Chorus 2', 'named by the measured anchor');
+    // Past the measured range nothing is claimed: index 13 is a different switch, not an extrapolation.
+    eq(patchPerPresetSwitch(body, 13, { targetIndex: 3 }), false, 'PP#13 is refused (PP_SWITCH_COUNT is 12)');
+    eq(parsePerPresetSwitches(body)!.switches.length, 12, 'and the page reports exactly twelve rows');
   });
 
   t('the named PP#1 offsets ARE the table (one source of truth, no stride formula left)', () => {
@@ -271,7 +294,12 @@ export function runPerPresetSwitchTests(): void {
     eq(PP_MEASURED_OFFSETS[4]!.target, 184, 'PP#4 target — 148 + 12×4, PREDICTED then read');
     eq(PP_MEASURED_OFFSETS[5]!.actionCode, 12, 'PP#5 action code — 4 + 2×4');
     eq(PP_MEASURED_OFFSETS[5]!.target, 196, 'PP#5 target — 148 + 12×5');
-    eq(PP_MEASURED_OFFSETS[6], undefined, 'and PP#6 is deliberately ABSENT: a stride over five points is STILL a prediction for the sixth');
+    eq(PP_MEASURED_OFFSETS[6]!.target, 208, 'PP#6 target — read in the seventh capture, predicted first');
+    eq(PP_MEASURED_OFFSETS[11]!.actionCode, 24, 'PP#11 action code — 4 + 2×10');
+    eq(PP_MEASURED_OFFSETS[11]!.target, 268, 'PP#11 target — 148 + 12×10');
+    eq(PP_MEASURED_OFFSETS[12]!.actionCode, 26, 'PP#12 action code — 4 + 2×11: the stride covers the whole range');
+    eq(PP_MEASURED_OFFSETS[12]!.target, 280, 'and PP#12 target — 148 + 12×11');
+    eq(Object.keys(PP_MEASURED_OFFSETS).length, PP_SWITCH_COUNT, 'the table is now COMPLETE: one entry per switch');
   });
 
   if (failures.length) throw new Error(`per-preset switches: ${failures.length} case(s) failed\n  - ${failures.join('\n  - ')}`);

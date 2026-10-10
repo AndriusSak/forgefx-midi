@@ -11,14 +11,14 @@
 //   • the block is located by the marker pair u16 `0x05F5` / u16 `0x0001`. SEARCH for it — never hard-code an
 //     offset: the doc recorded it "at ~11412" while preset 410's body holds it at **11420** (the body is
 //     compressed, so other content shifts it).
-//   • marker+4/6/8/10/12 = PP#1..PP#5's u16 ACTION CODE (stride 2; each moved to the code the owner
-//     configured there — 0x04 "Effect: Bypass" on all five in the 2026-10-09 captures).
-//   • marker+148/160/172/184/196 = PP#1..PP#5's TARGET BYTE (stride 12). PP#1 read 20 = "Filter 4", then
-//     8 = "Delay 2"; indices 2, 3, 4 and 5 were CONFIRMED BY PREDICTION — the expected value was stated
-//     BEFORE the capture was read and read back exactly (PP#2 → Reverb 1 read 51 at 160; PP#3 → Chorus 1 read
-//     2 at 172; PP#4 → Delay 2 read 8 at 184 WITH its action code at 10; PP#5 → Reverb 1 read 51 at 196 with
-//     its action code at 12). An earlier unexplained 14 at marker+160 is therefore explained: it was PP#2's
-//     target with "FB Rtn 2" selected.
+//   • marker+4 + 2·(index−1) = the u16 ACTION CODE of PP#1..PP#12 (stride 2 over all TWELVE switches; each
+//     moved to the code the owner configured there — 0x04 "Effect: Bypass" across the whole range).
+//   • marker+148 + 12·(index−1) = the TARGET BYTE of PP#1..PP#12 (stride 12). PP#1 read 20 = "Filter 4", then
+//     8 = "Delay 2"; every other index was CONFIRMED BY PREDICTION — the expected value was stated BEFORE the
+//     capture was read and read back exactly (PP#2 → Reverb 1 = 51 at 160, PP#3 → Chorus 1 = 2 at 172,
+//     PP#4 → Delay 2 = 8 at 184, PP#5 → Reverb 1 = 51 at 196, PP#6..PP#11 → Gate 1/GEQ 1/In 1/Looper/
+//     Megatap 1/MultDly 1 = 25/27/29/31/32/38 at 208/220/232/244/256/268, PP#12 → Chorus 2 = 3 at 280).
+//     An earlier unexplained 14 at marker+160 is therefore explained: it was PP#2's target with "FB Rtn 2".
 //   • for an EFFECT action the target is an index into the FM3's ALPHABETICALLY ORDERED FX-SLOT ENUMERATION,
 //     instances expanded — every anchor here was measured with the action set to Effect: Bypass, so the table
 //     is an FX-SLOT table and naming a NON-effect action's target byte with it would be a claim nobody made
@@ -35,11 +35,16 @@
 //   • two fitted alphabetical models were killed by their own predictions (Reverb 1 predicted 15, read 51;
 //     a grid position would have given ≈ 10).
 //
-// MEASURED for indices 1-5. PP#6..PP#12 are deliberately ABSENT even though the two strides now hold over
-// five consecutive indices (4 = 148 + 12×4, 196 = 148 + 12×5 exactly): a stride measured over five points
-// still does not OBSERVE the sixth, and this file exists to keep predictions out of the reading path. The
-// shape of the region supports it — 12 entries would put the last target at marker+280 — so one more capture
-// round (PP#6..PP#12 set to known anchors) turns the rest into the same one-line data entry.
+// MEASURED for ALL TWELVE indices, both fields. The seventh capture set PP#6..PP#12 to seven DISTINCT anchors
+// and every predicted value was read back: action codes 0x04 at marker+14/16/18/20/22/24/26 (the whole range
+// filled — marker+26 DID move to 0x04, which is what the executable check caught when a hand-read of the same
+// window called it zero) and targets 25/27/29/31/32/38 at marker+208..268 plus PP#12's 3 = "Chorus 2" at
+// marker+280. That also turns the assumed switch COUNT into a measurement.
+//
+// A stride is still not a reading: an entry appears here only after an observed capture, and this file must
+// keep reading that way. If the unit exposes MORE than twelve per-preset switches (FM3-Edit's own list is the
+// authority — the owner reports 24 rows), the next ones would sit at marker+28, +30, … for the action codes and
+// marker+292, +304, … for the targets, with the same rule: set one to a known anchor, read the byte, add it.
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** The marker pair that locates the block: u16 0x05F5 immediately followed by u16 0x0001. */
@@ -63,14 +68,25 @@ export const PP_MEASURED_OFFSETS: Readonly<Record<number, PpMeasuredOffsets>> = 
   2: { actionCode: 6, target: 160 },
   3: { actionCode: 8, target: 172 },
   4: { actionCode: 10, target: 184 },
-  5: { actionCode: 12, target: 196 }
+  5: { actionCode: 12, target: 196 },
+  6: { actionCode: 14, target: 208 },
+  7: { actionCode: 16, target: 220 },
+  8: { actionCode: 18, target: 232 },
+  9: { actionCode: 20, target: 244 },
+  10: { actionCode: 22, target: 256 },
+  11: { actionCode: 24, target: 268 },
+  12: { actionCode: 26, target: 280 }
 };
 
 /** PP#1's offsets — kept as named constants because most call sites mean exactly PP#1. */
 export const PP_ACTION_OFFSET = PP_MEASURED_OFFSETS[1]!.actionCode;
 export const PP_TARGET_OFFSET = PP_MEASURED_OFFSETS[1]!.target!;
 
-/** How many per-preset switches an FM3 is ASSUMED to expose (rows without an observed offset report nulls). */
+/**
+ * How many per-preset switches an FM3 exposes. Was an ASSUMPTION until 2026-10-09; now EVIDENCED — the seventh
+ * capture's PP#12 target byte at marker+280 AND its action code at marker+26 both read the values the model
+ * predicted, so twelve entries are real and all twelve are in the offset table.
+ */
 export const PP_SWITCH_COUNT = 12;
 
 /**
