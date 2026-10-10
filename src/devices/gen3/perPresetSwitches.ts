@@ -41,11 +41,32 @@
 // the action-code array is 24 u16 wide (marker+4..+50) and the target bytes are 24 × 12 apart
 // (marker+148..+424) — one contiguous range, not two blocks of twelve, and the same two strides throughout.
 //
-// MEASURED so far: PP#1–PP#13 and PP#24, both fields. Indices 14–23 are ABSENT on purpose: the strides fit
-// perfectly between 13 and 24 (22 = 2×11 and 132 = 12×11 exactly), which is precisely the trap this file
-// exists to avoid — a stride is not a reading, and an entry appears here only after an observed capture. Those
-// ten rows therefore read as UNREAD, which is honest; measuring them is one edit round (and a category sweep
-// would do both jobs at once, since each switch's action code lands in its own slot).
+// MEASURED: action codes for ALL 24 switches; target bytes for 20 of them.
+//
+// The ninth capture was a CATEGORY SWEEP — PP#14..PP#23 given distinct functions in one edit — and it produced
+// two results at once:
+//
+// 1. **All ten unobserved action-code slots read non-zero at the predicted offsets** (30/32/…/48), so the
+//    2-byte action-code array is now measured for all 24 indices.
+// 2. **The action code names the CATEGORY, not the function.** Effect: Bypass, Effect: Change Channel and
+//    Effect: Parameter ALL read 0x04; Scene: Select and the other scene flavour both read 0x03; Preset: Select
+//    and Preset: Increment both read 0x02. Measured codes: `0x02` Preset · `0x03` Scene · `0x04` Effect ·
+//    `0x05` Tuner · `0x07` Control Switch/Layout (which of the two is unconfirmed) · `0x08` Looper. The MODE
+//    lives inside the 12-byte record (see below), which is why this file no longer claims "0x04 = Bypass".
+//
+// THE RECORD IS 12 BYTES WITH CATEGORY-DEPENDENT FIELDS — measured, per switch, from that same capture:
+//   • record+0 carries the "which one" value for the target-selecting categories: the FX-slot index for
+//     Effect: Bypass (20 = Filter 4, 51 = Reverb 1 …), the SCENE number for Scene: Select (3 and 7 on two
+//     switches), the PRESET number for Preset: Select (28).
+//   • categories that do not select a target leave +0 at ZERO and write elsewhere: Effect: Parameter wrote +2=2
+//     and +8=1; Effect: Change Channel wrote +0=2 with +4=1; one Preset: Increment row wrote +0=1 plus a u16
+//     511 at +6; Tuner, Looper and the Control-Switch/Layout row left the WHOLE record zero.
+//   ⇒ So `targetIndex` below is the byte at record+0, and it is only the "location" for the categories that use
+//     it. It is left UNLOCATED for the four rows whose +0 read zero (PP#18 Effect: Parameter, PP#21 Tuner,
+//     PP#22 Looper, PP#23 Control Switch/Layout): a zero is not an observation, and those rows refuse a target
+//     write rather than writing to a field their category does not use.
+//   ⇒ Decoding the per-category record layout (+2/+4/+6/+8) is OPEN — it needs one edit per category, and the
+//     owner has confirmed the assignments for 14–23 only in outline.
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** The marker pair that locates the block: u16 0x05F5 immediately followed by u16 0x0001. */
@@ -78,8 +99,16 @@ export const PP_MEASURED_OFFSETS: Readonly<Record<number, PpMeasuredOffsets>> = 
   11: { actionCode: 24, target: 268 },
   12: { actionCode: 26, target: 280 },
   13: { actionCode: 28, target: 292 },
-  // 14..23 NOT measured — the strides predict marker+30…+48 and marker+304…+412, and a prediction is not a
-  // reading (see the header). One edit with those switches set to known anchors fills them in.
+  14: { actionCode: 30, target: 304 },   // Scene: Select → record+0 read 3 (a SCENE number)
+  15: { actionCode: 32, target: 316 },   // Scene: Select → 7, the second scene in the pair
+  16: { actionCode: 34, target: 328 },   // scene flavour #2 → +0=1 and +2=1
+  17: { actionCode: 36, target: 340 },   // Effect: Change Channel → +0=2 and +4=1
+  18: { actionCode: 38 },                // Effect: Parameter → +0 read ZERO, values sit at +2/+8 (see the header)
+  19: { actionCode: 40, target: 364 },   // Preset: Select → record+0 read 28 (a PRESET number)
+  20: { actionCode: 42, target: 376 },   // Preset: Increment → +0=1 with a u16 511 at +6
+  21: { actionCode: 44 },                // Tuner → the whole record read zero
+  22: { actionCode: 46 },                // Looper → the whole record read zero
+  23: { actionCode: 48 },                // Control Switch / Layout → the whole record read zero
   24: { actionCode: 50, target: 424 }
 };
 
@@ -136,15 +165,33 @@ export function ppTargetLabel(index: number): string | null {
 }
 
 /**
- * The action a switch performs. `unassigned` for 0 (observed: the empty block is all-zero) and null for a
- * code nobody has measured — the caller shows the raw byte rather than a made-up function name. The two
- * named codes are INFERRED from two configured switches, not measured across all functions.
+ * The switch-function CATEGORY a code selects — measured 2026-10-09 by giving ten switches ten different
+ * functions in one edit and reading the bytes back. The code is the FAMILY, not the function: `0x04` covers
+ * Effect: Bypass, Effect: Change Channel AND Effect: Parameter; `0x03` covers the scene flavours; `0x02` covers
+ * Preset: Select and Preset: Increment. The mode is inside the 12-byte record (see the header), so a caller
+ * must NOT turn one of these into a function name — "Effect: Bypass" was exactly that mistake.
+ *
+ * `0x07` is measured as ONE category and the owner's assignment for that switch was "Control Switch 1 OR
+ * Layout 2" (the suggestion offered both), so which of the two it is remains unconfirmed — stated, not guessed.
+ */
+export const PP_ACTION_CATEGORIES: Readonly<Record<number, string>> = {
+  0x02: 'Preset',
+  0x03: 'Scene',
+  0x04: 'Effect',
+  0x05: 'Tuner',
+  0x07: 'Control Switch / Layout (unconfirmed which)',
+  0x08: 'Looper'
+};
+
+/**
+ * The category a code belongs to, as display text, or `unassigned` for 0 (observed: the empty block is
+ * all-zero). Null for a code nobody has measured — the caller shows the raw byte rather than a made-up name.
+ * The MODE (bypass vs channel vs parameter, select vs increment) is NOT in this code; it lives in the record.
  */
 export function ppActionName(code: number): string | null {
   if (code === 0) return 'unassigned';
-  if (code === 0x04) return 'Effect: Bypass (inferred)';
-  if (code === 0x03) return 'Scene: Select (inferred)';
-  return null;
+  const category = PP_ACTION_CATEGORIES[code];
+  return category ? `${category} (category — the mode is in the record)` : null;
 }
 
 /** How much of a row is actually observed. Drives what a caller may show, and what it may write. */

@@ -213,6 +213,7 @@ export {
   patchPerPresetSwitch,
   findPerPresetSwitchBlock,
   ppActionName,
+  PP_ACTION_CATEGORIES,
   ppTargetLabel,
   ppWritable,
   PP_TARGET_ANCHORS,
