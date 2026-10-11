@@ -75,12 +75,20 @@
 //     ("primary scene 1, secondary scene 1") and the record read +0=1, +2=1, which fits; a pair with two
 //     DIFFERENT scenes is still needed to prove which of the two offsets is which (an open item, and the
 //     reason this is written as "fits" rather than "confirmed").
-//   • the rows that do NOT use +0 as a "which one" value, and where each of them writes instead: Effect:
-//     Parameter wrote +2=2 and +8=1 with +0 ZERO; one Preset: Increment row wrote a u16 511 at +6 (with +0=1);
-//     Utility: Tuner, Looper and the Control Switch row left the WHOLE record zero.
-//   • Effect: Change Channel is NOT in that list — it wrote +0=2 together with +4=1. Whether that 2 is the same
-//     FX-slot index a Bypass row carries (2 = "Chorus 1") is NOT measured, which is why the anchor NAME is not
-//     applied to it anywhere downstream (see `ppTargetLabel`).
+//   • the rows that do NOT use +0 as a "which one" value, and where each of them writes instead: one Effect
+//     function wrote +2=2 and +8=1 with +0 ZERO; one Preset: Increment row wrote a u16 511 at +6 (with +0=1);
+//     Utility: Tuner, Looper and the Control Switch row left the WHOLE record zero. NOTE (2026-10-11): that
+//     first row was labelled "Effect: Parameter" here until the owner reported that FM3-Edit's TAP menu offers
+//     no Parameter function, and the marker+52 function index says the row was Effect's THIRD entry — so the
+//     name was a guess and the row is now referred to by its index, not by a name nobody measured.
+//   • Effect: Change Channel IS measured (2026-10-11, four rows, all values stated before the dump): its
+//     record+0 IS the FX-slot index of the block it changes — Chorus 1 = 2, Reverb 1 = 51, Delay 1 = 7, and
+//     GEQ 2 = 28 (a new anchor, and consistent with the measured GEQ 1 = 27: a family's instances are
+//     CONSECUTIVE). Its CHANNEL number lives at record+2, zero-based letter order A=0 · B=1 · C=2 · D=3 (read
+//     on three rows: B, D and B), and +0 is ONE byte (Preset: Select 100 wrote 100). An earlier reading that
+//     put the channel at +4 came from a single row and is REFUTED.
+//     ⇒ The anchor names therefore apply to Bypass AND Change Channel rows, which is measured; they still do
+//     not apply to an Effect row whose function index (marker+52) is one of the unmeasured ones.
 //   ⇒ So `targetIndex` below is the byte at record+0, and it is only the "location" for the categories that use
 //     it. It is left UNLOCATED for the four rows whose +0 read zero (PP#18 Effect: Parameter, PP#21 Utility,
 //     PP#22 Looper, PP#23 Control Switch): a zero is not an observation, and those rows refuse a target
@@ -97,23 +105,26 @@
 // The slot ALIGNMENT is what was read; the start and the width are the shape those four slots fit. Recovered by
 // reading the region with a tool, and the old "four unexplained bytes in the gap" report is retired by it.
 //
-// Its MEANING is OPEN, and the candidates are now three, not two:
-//   1. the HOLD half of the switch definitions (FM3-Edit shows a TAP *and* a HOLD per switch). The owner has
-//      since stated that ALL HOLDs were UNASSIGNED during that capture, and an unassigned HOLD encodes as 0 on
-//      the TAP side, so a HOLD-category mirror should have read zero throughout — this makes HOLD the WEAKEST
-//      candidate for these four slots, though it is not a positive proof that the array is not HOLD's home.
-//   2. a function/mode index for the TAP assignment. It fits the values (the slots differ by FUNCTION where the
-//      category is the same) but it does not explain why they ascend 1,2,3,4 in slot order.
-//   3. an ALLOCATION index — the slots that are non-zero are exactly the switches whose record uses bytes
-//      outside +0 (16: +2; 17: +4; 18: +2/+8; 20: +6/+7). Rows 14/15/19 (+0 only) and 21–23 (empty) read 0,
-//      so "a pointer handed out in slot order to the switches that need extra data" fits the ascending run
-//      without needing the function list at all. Candidate 2 predicts REPEATED values when two switches take
-//      the same function; candidate 3 predicts DISTINCT ascending ones. One dump tells them apart (pairs of the
-//      same function are in HARDWARE-ROUND-PLAN.md), and the plan also predicts where a HOLD half would live if
-//      it is not here: +100…+147, exactly 24 u16 between this array and the records at +148, zero in every
-//      capture to date.
-// Until a dump decides, this array is NOT decoded into a field here — and its four observed values ARE pinned
-// as expectations in check-switch-offsets.ts so they cannot drift unnoticed.
+// Its MEANING WAS DECIDED on 2026-10-11 (tenth capture): it is the TAP's FUNCTION INDEX WITHIN ITS CATEGORY,
+// zero-based, where 0 is the category's first menu entry. The discriminator was written down BEFORE the dump —
+// "a function index predicts REPEATED values when two switches share a function, an allocation index predicts
+// DISTINCT ascending ones" — and the capture answered REPEATS: five Change Channel rows all read 1 (where an
+// allocation index predicted five different ascending values) and three Scene: Toggles all read 1. The two
+// other candidates are dead: it is not the HOLD half (the three HOLDs set for that round were Looper, Utility
+// and Control Switch, and these slots read 1/1/1 while the HOLD codes appeared at marker+436 — below), and the
+// ascending 1,2,3,4 of the sweep was a coincidence of the functions that edit happened to choose (Scene: Toggle
+// = 1, two unmeasured Effect entries = 2 and 3, Preset: Increment = 4). Within-category function changes are
+// measured in BOTH directions: Scene 0 (Select) → 1 (Toggle), Effect 0 (Bypass) → 1 (Change Channel), Preset 0
+// (Select) → 4 (Increment, both in one capture), Looper 0 → 4 (Undo/Erase).
+//
+// ⇒ THE HOLD HALF IS A SECOND 24-WIDE u16 ACTION-CODE ARRAY AT marker+436 + 2·(i−1), where 436 = 148 + 12×24 —
+// i.e. immediately after the twenty-fourth 12-byte record, one u16 per switch with the same width and stride as
+// the TAP array. MEASURED: the three HOLDs set for this round read back as 0x08 Looper, 0x05 Utility and 0x07
+// Control Switch in row order, with every other row 0 (all other HOLDs were Unassigned). The long-standing
+// prediction that a HOLD half would live at +100…+147 is REFUTED — that span stayed all zero, and those bytes
+// are still unexplained. Nothing is decoded into a HOLD field here yet (unwired, and an unmeasured offset must
+// never be read), but the location is no longer a guess: it is an observation with a negative control beside
+// it. The values are pinned as expectations in check-switch-offsets.ts so they cannot drift unnoticed.
 //
 // NO ANCHOR NAME IS HANDED OUT FOR AN UNVERIFIED MODE. `PP_TARGET_ANCHORS` was measured with Effect: Bypass
 // selected, and the code 0x04 covers Bypass AND Change Channel AND Parameter, whose +0 means different things
