@@ -145,7 +145,7 @@ export function runPerPresetSwitchTests(): void {
     eq(pp1.actionCode, 0x04, 'parsed action code');
     eq(pp1.targetIndex, 51, 'parsed target index');
     eq(pp1.targetLabel, 'Reverb 1', 'and the measured anchor names it');
-    eq(pp1.action, 'Effect (category — the mode is in the record)', 'the code names the CATEGORY: bypass, change-channel and parameter all read 0x04');
+    eq(pp1.action, 'Effect (category — the mode is in the record)', 'the code names the CATEGORY: Bypass, Chan Select, Chan Toggle and Chan Inc/Dec all read 0x04');
     eq(back.populated, true, 'the block now reads as populated');
   });
 

@@ -41,18 +41,40 @@
 // the action-code array is 24 u16 wide (marker+4..+50) and the target bytes are 24 × 12 apart
 // (marker+148..+424) — one contiguous range, not two blocks of twelve, and the same two strides throughout.
 //
-// MEASURED: action codes for ALL 24 switches; target bytes for 20 of them.
+// THE WHOLE BLOCK, as of the tenth capture (2026-10-11). Four arrays, all one entry per switch, and nothing
+// outside them has ever been non-zero (verified with a tool across all ten captures, +0…+899 from the marker):
+//
+//   marker+4   + 2·(i−1)   u16  TAP ACTION CODE = the CATEGORY (all 24 measured, all 13 codes named)
+//   marker+52  + 2·(i−1)   u16  TAP FUNCTION INDEX WITHIN the category (0 = its first menu entry)
+//   marker+148 + 12·(i−1)  12 B the record: +0 the "which one" value, then category-dependent fields
+//   marker+436 + 2·(i−1)   u16  HOLD ACTION CODE, the same code space as the TAP code
+//
+// and one span that is NOT decoded: `+100…+147`, 48 bytes between the function-index array and the records,
+// ALL ZERO in every capture taken so far — and so is everything past the HOLD array out to marker+899. It is
+// reported as unexplained rather than as "free space": the block ENDS at +483, and nothing beyond it has ever
+// been non-zero.
+//
+// STILL OPEN (hypotheses, deliberately not fields): the sweep gave Chan Toggle ONE row `[+0=2, +2=0, +4=1]`
+// and Chan Inc/Dec ONE row `[+0=0, +2=2, +8=1]`, which is not enough to decode either layout. The natural
+// readings are `[block, channel A, channel B]` for a toggle and `[block, step, direction]` for an Inc/Dec —
+// and whether Chan Toggle's +4 is that second channel or the 2nd-press action measured on a Chan Select row is
+// exactly the same question. One edit each would settle them; until then they stay out of the model, and their
+// observed bytes stay pinned in check-switch-offsets.ts.
 //
 // The ninth capture was a CATEGORY SWEEP — PP#14..PP#23 given distinct functions in one edit — and it produced
 // two results at once:
 //
 // 1. **All ten unobserved action-code slots read non-zero at the predicted offsets** (30/32/…/48), so the
 //    2-byte action-code array is now measured for all 24 indices.
-// 2. **The action code names the CATEGORY, not the function.** Effect: Bypass, Effect: Change Channel and
-//    Effect: Parameter ALL read 0x04; Scene: Select and the other scene flavour both read 0x03; Preset: Select
-//    and Preset: Increment both read 0x02. Measured codes: `0x02` Preset · `0x03` Scene · `0x04` Effect ·
-//    `0x05` Utility · `0x07` Control Switch (owner-confirmed) · `0x08` Looper. The MODE
-//    lives inside the 12-byte record (see below), which is why this file no longer claims "0x04 = Bypass".
+// 2. **The action code names the CATEGORY, not the function.** The three Effect functions the owner set all
+//    read 0x04 (Bypass, Chan Select and — later measurements showed — Chan Toggle and Chan Inc/Dec); Scene:
+//    Select and Scene: Toggle both read 0x03; Preset: Select and Preset: Increment both read 0x02. Measured
+//    codes: `0x02` Preset · `0x03` Scene · `0x04` Effect · `0x05` Utility · `0x07` Control Switch
+//    (owner-confirmed) · `0x08` Looper, and the tenth capture added the other seven. The FUNCTION
+//    lives inside the function-index array at marker+52 (see below), which is why this file no longer claims
+//    "0x04 = Bypass". NOTE on the names: this project called Effect function 1 "Change Channel" for a week; the
+//    owner read FM3-Edit's own list out on 2026-10-11 and it is **Chan Select**. The old name was never the
+//    editor's word, and neither was the "Parameter" this file used for a row that was really **Chan Inc/Dec**.
 //
 //    **THE CODE IS THE CATEGORY'S POSITION IN FM3-EDIT'S OWN CATEGORY LIST — measured-codes-vs-list, 6 for 6.**
 //    The owner photographed the editor's TAP "Category" dropdown (2026-10-09): Unassigned · Bank · Preset ·
@@ -120,7 +142,7 @@
 // Its MEANING WAS DECIDED on 2026-10-11 (tenth capture): it is the TAP's FUNCTION INDEX WITHIN ITS CATEGORY,
 // zero-based, where 0 is the category's first menu entry. The discriminator was written down BEFORE the dump —
 // "a function index predicts REPEATED values when two switches share a function, an allocation index predicts
-// DISTINCT ascending ones" — and the capture answered REPEATS: five Change Channel rows all read 1 (where an
+// DISTINCT ascending ones" — and the capture answered REPEATS: five Chan Select rows all read 1 (where an
 // allocation index predicted five different ascending values) and three Scene: Toggles all read 1. The two
 // other candidates are dead: it is not the HOLD half (the three HOLDs set for that round were Looper, Utility
 // and Control Switch, and these slots read 1/1/1 while the HOLD codes appeared at marker+436 — below), and the
@@ -139,16 +161,18 @@
 // the TAP array. MEASURED: the three HOLDs set for this round read back as 0x08 Looper, 0x05 Utility and 0x07
 // Control Switch in row order, with every other row 0 (all other HOLDs were Unassigned). The long-standing
 // prediction that a HOLD half would live at +100…+147 is REFUTED — that span stayed all zero, and those bytes
-// are still unexplained. Nothing is decoded into a HOLD field here yet (unwired, and an unmeasured offset must
-// never be read), but the location is no longer a guess: it is an observation with a negative control beside
-// it. The values are pinned as expectations in check-switch-offsets.ts so they cannot drift unnoticed.
+// are still unexplained. The HOLD code IS decoded now (holdActionCode / holdAction), and one flag travels with
+// it: `holdMeasured` is false for the twenty-one rows nobody exercised, because their 0 is the codec's
+// Unassigned convention and not an observation. The location was never a guess, and it is now a field.
 //
-// NO ANCHOR NAME IS HANDED OUT FOR AN UNVERIFIED MODE. `PP_TARGET_ANCHORS` was measured with Effect: Bypass
-// selected, and the code 0x04 covers Bypass AND Change Channel AND Parameter, whose +0 means different things
-// (Parameter's +0 read ZERO). The mode is inside the record and is not decoded, so `ppTargetLabel` is a raw
-// lookup whose result is the byte's identity ONLY for a Bypass row: callers must not print it beside a row
-// whose mode they cannot read. The round that can lift this is written down in the plan (Change Channel on a
-// KNOWN block: if its +0 reads that block's slot index, the table covers the whole Effect category).
+// NO ANCHOR NAME IS HANDED OUT WHERE THE FUNCTION WAS NOT MEASURED. This paragraph used to say the name must
+// be withheld from every 0x04 row because the mode was undecodable; the tenth capture SETTLED it instead of
+// lifting it. `PP_TARGET_ANCHORS` was measured with Effect: Bypass, and on 2026-10-11 a Chan Select row was
+// pointed at four known blocks — record+0 read their FX-slot indices every time (2, 51, 7, 28), so the table
+// provably covers **Bypass (function 0) and Chan Select (function 1)**. It does NOT cover the rest: Chan
+// Inc/Dec left record+0 at ZERO, Chan Toggle's +0 has never been shown to be a block, and every non-Effect
+// category stores something else there. `ppTargetIsFxSlot(actionCode, functionIndex)` is that rule, computed
+// once here and carried on each row as `targetIsFxSlot` so a caller cannot re-derive it differently.
 // ────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** The marker pair that locates the block: u16 0x05F5 immediately followed by u16 0x0001. */
@@ -184,8 +208,8 @@ export const PP_MEASURED_OFFSETS: Readonly<Record<number, PpMeasuredOffsets>> = 
   14: { actionCode: 30, target: 304 },   // Scene: Select → record+0 read 3 (a SCENE number)
   15: { actionCode: 32, target: 316 },   // Scene: Select → 7, the second scene in the pair
   16: { actionCode: 34, target: 328 },   // scene flavour #2 → +0=1 and +2=1
-  17: { actionCode: 36, target: 340 },   // Effect: Change Channel → +0=2 and +4=1
-  18: { actionCode: 38 },                // Effect: Parameter → +0 read ZERO, values sit at +2/+8 (see the header)
+  17: { actionCode: 36, target: 340 },   // the sweep's Chan Toggle → +0=2 and +4=1 (Chan Select since 2026-10-11 → +0=7)
+  18: { actionCode: 38 },                // the sweep's Chan Inc/Dec → +0 read ZERO, values sit at +2/+8 (see the header)
   19: { actionCode: 40, target: 364 },   // Preset: Select → record+0 read 28 (a PRESET number)
   20: { actionCode: 42, target: 376 },   // Preset: Increment → +0=1 with a u16 511 at +6
   21: { actionCode: 44 },                // Utility: Tuner → the whole record read zero
@@ -320,9 +344,9 @@ export const PP_TARGET_ANCHORS: Readonly<Record<number, string>> = {
 /** The name for a measured target index, or null when nobody has measured that index. */
 /**
  * ALIAS CAVEAT: a raw lookup, not a verdict. It answers "what does the picker call index N" — NOT "this row's
- * byte IS that block". The difference is the whole Effect category, whose three measured modes do not share the
- * meaning of record+0 (Bypass: the FX slot; Parameter: zero there). Gate the display on the mode, never on the
- * code alone.
+ * byte IS that block". Ask `ppTargetIsFxSlot(actionCode, functionIndex)` for the verdict (or read the row's
+ * `targetIsFxSlot`): the anchor names only apply to the two Effect functions that were measured to store a slot
+ * index there.
  */
 export function ppTargetLabel(index: number): string | null {
   return PP_TARGET_ANCHORS[index] ?? null;
@@ -330,14 +354,15 @@ export function ppTargetLabel(index: number): string | null {
 
 /**
  * The switch-function CATEGORY a code selects — measured 2026-10-09 by giving ten switches ten different
- * functions in one edit and reading the bytes back. The code is the FAMILY, not the function: `0x04` covers
- * Effect: Bypass, Effect: Change Channel AND Effect: Parameter; `0x03` covers the scene flavours; `0x02` covers
- * Preset: Select and Preset: Increment. The mode is inside the 12-byte record (see the header), so a caller
- * must NOT turn one of these into a function name — "Effect: Bypass" was exactly that mistake.
+ * functions in one edit and reading the bytes back, then completed on 2026-10-11 when the seven predicted codes
+ * read exactly. The code is the FAMILY, not the function: `0x04` covers every Effect function measured so far
+ * (Bypass, Chan Select, Chan Toggle, Chan Inc/Dec); `0x03` covers the scene flavours; `0x02` covers
+ * Preset: Select and Preset: Increment. The FUNCTION is the array at marker+52 (see `ppFunctionName`), so a
+ * caller must NOT turn a code into a function name — "Effect: Bypass" was exactly that mistake.
  *
- * `0x07` was measured on a switch whose assignment allowed "Control Switch 1 OR Layout 2"; the owner has since
- * confirmed it was **Control Switch**, so Layout remains UNMEASURED — it either shares this code or has one of
- * its own, and nobody has observed which.
+ * `0x07` was measured on a switch whose assignment allowed "Control Switch 1 OR Layout 2"; the owner confirmed
+ * it was **Control Switch**, and the tenth capture then measured **Layout = 0x06** on its own row, so the two
+ * no longer share a question.
  */
 export const PP_ACTION_CATEGORIES: Readonly<Record<number, string>> = {
   0x01: 'Bank',
