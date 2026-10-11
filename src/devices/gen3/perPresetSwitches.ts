@@ -62,10 +62,12 @@
 //    0x07 Control Switch, 0x08 Looper. It also corrected a name: the switch at PP#21 was assigned **Utility:
 //    Tuner**, and its code read 0x05 — so 0x05 is the Utility CATEGORY and "Tuner" was one of its functions,
 //    which is why no "Tuner" code exists in the list above.
-//    ⇒ **The remaining codes are PREDICTIONS, not measurements, and this file does not carry them**: Bank 0x01,
-//    Layout 0x06, Per-Preset 0x09, View 0x0A, Setlist 0x0B, Song 0x0C, Song Section 0x0D. They are written down
-//    as the positive control for the next capture in the hardware plan, and `PP_ACTION_CATEGORIES` stays
-//    measured-only until a dump confirms them (an unmeasured code returns no name, never a guessed one).
+//    ⇒ **All fourteen positions are now MEASURED, and the last seven were confirmed as predictions.** On
+//    2026-10-11 a single edit set seven switches to the seven unmeasured categories and ALL SEVEN codes read
+//    exactly as predicted before the dump — Bank 0x01, Layout 0x06, Per-Preset 0x09, View 0x0A, Setlist 0x0B,
+//    Song 0x0C, Song Section 0x0D — with Layout (the gap inside the measured run) and Song Section (the far end)
+//    both included, so a hidden category would have shifted them and did not. `PP_ACTION_CATEGORIES` therefore
+//    carries all thirteen named codes; a code outside them still returns no name, never a guessed one.
 //
 // THE RECORD IS 12 BYTES WITH CATEGORY-DEPENDENT FIELDS — measured, per switch, from that same capture:
 //   • record+0 carries the "which one" value for the target-selecting categories: the FX-slot index for
@@ -221,9 +223,80 @@ export const PP_TARGET_BYTE_INDICES: readonly number[] = Object.entries(PP_MEASU
   .map(([i]) => Number(i))
   .sort((a, b) => a - b);
 
-/** Bytes from the marker that this decoder may read — one u16 past the highest observed offset. */
-export const PP_REGION_BYTES =
-  Math.max(...Object.values(PP_MEASURED_OFFSETS).flatMap((o) => [o.actionCode, o.target ?? o.actionCode])) + 2;
+/**
+ * Marker-relative base of the per-switch FUNCTION-INDEX array: one u16 per switch, stride 2, index − 1 entries
+ * in. MEASURED 2026-10-11 as the TAP's function index WITHIN its category (0 = the category's first menu entry),
+ * with the reading decided by a discriminator written down before the dump: a function index predicts REPEATED
+ * values when two switches share a function, an allocation index predicts distinct ascending ones — and five
+ * Change Channel rows all read 1 while three Scene: Toggles all read 1 (repeats). Cross-category values therefore
+ * repeat too (Scene #1 and Effect #1 both read 1): the index is per CATEGORY, not global.
+ */
+export const PP_FUNCTION_INDEX_BASE = 52;
+
+/**
+ * Marker-relative base of the per-switch HOLD ACTION-CODE array — `148 + 12 × PP_SWITCH_COUNT` = 436, i.e.
+ * immediately after the twenty-fourth 12-byte record, one u16 per switch with the same width and stride as the
+ * TAP action-code array. MEASURED 2026-10-11: three HOLDs were set (Looper, Utility, Control Switch on switches
+ * 16/17/18) and the bytes read `0x08`, `0x05`, `0x07` at exactly those three slots, in row order, with all other
+ * rows zero. So a HOLD definition mirrors a TAP definition, in the same code space.
+ *
+ * The ARRAY's location is observed; the twenty-one rows that read 0 were never exercised, so a 0 there is
+ * reported as the code 0 (Unassigned — the same encoding the TAP side uses) and is FLAGGED as unexercised via
+ * `holdMeasured`, rather than being presented with the same standing as the three measured ones.
+ */
+export const PP_HOLD_ACTION_BASE = 148 + 12 * PP_SWITCH_COUNT;
+
+/** The switch indices whose HOLD was actually EXERCISED on the unit (the three set on 2026-10-11). */
+export const PP_HOLD_MEASURED_INDICES: readonly number[] = [16, 17, 18];
+
+/**
+ * The measured TAP-function names, by category code then function index. PARTIAL ON PURPOSE: only the entries
+ * whose name the owner read off FM3-Edit's own list, or whose function a named assignment identified, are here.
+ * An index outside this table is a NUMBER — never a plausible name (the rule the FX-slot anchors follow too).
+ * `0x07` carries no entry: Control Switch rows read index 0 for both "Control Switch 1" and "Control Switch 4",
+ * because the switch NUMBER is a record field, not a function.
+ */
+export const PP_FUNCTION_NAMES: Readonly<Record<number, Readonly<Record<number, string>>>> = {
+  0x02: { 0: 'Select', 4: 'Increment' },
+  0x03: { 0: 'Select', 1: 'Toggle' },
+  0x04: { 0: 'Bypass', 1: 'Chan Select', 2: 'Chan Toggle', 3: 'Chan Inc/Dec' },
+  0x05: { 0: 'Tuner' },
+  0x08: { 4: 'Undo/Erase' }
+};
+
+/** The measured name of a TAP function, or null when its index (or its whole category) was never named. */
+export function ppFunctionName(actionCode: number | null, functionIndex: number | null): string | null {
+  if (actionCode === null || functionIndex === null) return null;
+  return PP_FUNCTION_NAMES[actionCode]?.[functionIndex] ?? null;
+}
+
+/**
+ * Whether the FX-slot ANCHOR table may name this row's target byte — MEASURED, not inferred.
+ *
+ * The anchors were originally all measured with Effect: Bypass. On 2026-10-11 a Chan Select row was pointed at a
+ * known block four times (Chorus 1, Reverb 1, Delay 1, GEQ 2) and record+0 read 2, 51, 7, 28 — the FX-slot index
+ * every time — so the table provably covers **Bypass (function 0) and Chan Select (function 1)**. It does NOT
+ * cover the other Effect functions: Chan Inc/Dec left record+0 at zero in the sweep, and Chan Toggle's +0 has
+ * never been shown to be a block. Every non-Effect category stores something else there (a scene number, a
+ * preset number, a layout, a control-switch number), so the name must not appear beside them.
+ */
+export function ppTargetIsFxSlot(actionCode: number | null, functionIndex: number | null): boolean {
+  if (actionCode !== 0x04) return false;
+  return functionIndex === 0 || functionIndex === 1;
+}
+
+/**
+ * Bytes from the marker that this decoder may read — one u16 past the highest offset of EVERY array it reads,
+ * which as of 2026-10-11 is not only the record table: the function-index array at +52 and the HOLD action-code
+ * array at +436 are both one u16 per switch. Declared AFTER those bases so the bound cannot drift from them
+ * (a `const` read before its declaration would throw, and the guard that refuses a body too short to hold the
+ * block is exactly where a stale bound turns into reading past the end).
+ */
+export const PP_REGION_BYTES = Math.max(
+  ...Object.values(PP_MEASURED_OFFSETS).flatMap((o) => [o.actionCode, o.target ?? o.actionCode]),
+  PP_FUNCTION_INDEX_BASE + 2 * PP_SWITCH_COUNT,
+  PP_HOLD_ACTION_BASE + 2 * PP_SWITCH_COUNT
+) + 2;
 
 const u16 = (b: ArrayLike<number>, o: number): number => (b[o] ?? 0) | ((b[o + 1] ?? 0) << 8);
 
@@ -240,7 +313,7 @@ const u16 = (b: ArrayLike<number>, o: number): number => (b[o] ?? 0) | ((b[o + 1
  */
 export const PP_TARGET_ANCHORS: Readonly<Record<number, string>> = {
   0: 'Amp 1', 1: 'Cab 1', 2: 'Chorus 1', 3: 'Chorus 2', 7: 'Delay 1', 8: 'Delay 2', 14: 'FB Rtn 2',
-  20: 'Filter 4', 25: 'Gate 1', 27: 'GEQ 1', 29: 'In 1', 31: 'Looper', 32: 'Megatap 1',
+  20: 'Filter 4', 25: 'Gate 1', 27: 'GEQ 1', 28: 'GEQ 2', 29: 'In 1', 31: 'Looper', 32: 'Megatap 1',
   38: 'MultDly 1', 51: 'Reverb 1'
 };
 
@@ -267,12 +340,19 @@ export function ppTargetLabel(index: number): string | null {
  * its own, and nobody has observed which.
  */
 export const PP_ACTION_CATEGORIES: Readonly<Record<number, string>> = {
+  0x01: 'Bank',
   0x02: 'Preset',
   0x03: 'Scene',
   0x04: 'Effect',
   0x05: 'Utility',
+  0x06: 'Layout',
   0x07: 'Control Switch',
-  0x08: 'Looper'
+  0x08: 'Looper',
+  0x09: 'Per-Preset',
+  0x0a: 'View',
+  0x0b: 'Setlist',
+  0x0c: 'Song',
+  0x0d: 'Song Section'
 };
 
 /**
@@ -305,6 +385,26 @@ export interface PerPresetSwitch {
    * always the observed value; the INTERPRETATION is action-dependent.
    */
   targetLabel: string | null;
+  /**
+   * TRUE only when the anchor table provably names this byte — the action is Effect AND the function is Bypass
+   * or Chan Select (`ppTargetIsFxSlot`). A caller that prints `targetLabel` without checking this claims a name
+   * nobody measured for every other category, so the rule is computed HERE and surfaced as one boolean rather
+   * than left to each caller to re-derive.
+   */
+  targetIsFxSlot: boolean;
+  /** The TAP's FUNCTION INDEX within its category (`marker+52 + 2·(index−1)`); 0 = the category's first entry. */
+  functionIndex: number;
+  /** `ppFunctionName` for that pair — null when the index, or the whole category, was never named. */
+  functionName: string | null;
+  /** HOLD action code (`marker+436 + 2·(index−1)`) — the SAME code space as `actionCode`; 0 = Unassigned. */
+  holdActionCode: number;
+  /** `ppActionName` of the HOLD code. */
+  holdAction: string | null;
+  /**
+   * Whether a HOLD at this index was ever EXERCISED on the unit (16/17/18 on 2026-10-11). False means the byte
+   * reads 0 and that zero was never tested — shown as Unassigned, but never with the standing of a measurement.
+   */
+  holdMeasured: boolean;
   /** 'measured' = both offsets observed · 'partial' = action code only · 'unknown' = neither. */
   confidence: PpRowConfidence;
 }
@@ -332,6 +432,13 @@ export interface PpEvidence {
   actionCodeIndices: number[];
   /** Indices whose TARGET-BYTE offset is observed, ascending. */
   targetByteIndices: number[];
+  /**
+   * Indices whose HOLD was EXERCISED (a non-zero HOLD code was read there), ascending. Distinct in kind from the
+   * two lists above — those name located OFFSETS, this names a tested VALUE — and kept separate so a reader can
+   * tell "the array is located" from "this row was proven": a 0 in an unexercised row is Unassigned by codec
+   * convention, not by observation.
+   */
+  holdMeasuredIndices: number[];
 }
 
 /** Locate the block: the first `0x05F5` / `0x0001` marker pair in the body, or undefined. */
@@ -355,8 +462,17 @@ export function parsePerPresetSwitches(body: ArrayLike<number>, count = PP_SWITC
   const switches: PerPresetSwitch[] = [];
   for (let i = 1; i <= n; i++) {
     const off = PP_MEASURED_OFFSETS[i];
+    // The function index and the HOLD code do NOT come from the TAP offset table: they are their own arrays,
+    // located for every index, so they are read before (and independently of) the per-index TAP table.
+    const functionIndex = u16(body, at + PP_FUNCTION_INDEX_BASE + 2 * (i - 1));
+    const holdActionCode = u16(body, at + PP_HOLD_ACTION_BASE + 2 * (i - 1));
+    const holdAction = ppActionName(holdActionCode);
+    const holdMeasured = PP_HOLD_MEASURED_INDICES.includes(i);
     if (!off) {
-      switches.push({ index: i, actionCode: null, action: null, targetIndex: null, targetLabel: null, confidence: 'unknown' });
+      switches.push({
+        index: i, actionCode: null, action: null, targetIndex: null, targetLabel: null, targetIsFxSlot: false,
+        functionIndex, functionName: null, holdActionCode, holdAction, holdMeasured, confidence: 'unknown'
+      });
       continue;
     }
     const actionCode = u16(body, at + off.actionCode);
@@ -368,16 +484,27 @@ export function parsePerPresetSwitches(body: ArrayLike<number>, count = PP_SWITC
       action: ppActionName(actionCode),
       targetIndex,
       targetLabel: targetIndex === null ? null : ppTargetLabel(targetIndex),
+      targetIsFxSlot: ppTargetIsFxSlot(actionCode, functionIndex),
+      functionIndex,
+      functionName: ppFunctionName(actionCode, functionIndex),
+      holdActionCode,
+      holdAction,
+      holdMeasured,
       confidence: hasTarget ? 'measured' : 'partial'
     });
   }
-  const populated = switches.some((s) => (s.actionCode ?? 0) !== 0 || (s.targetIndex ?? 0) !== 0);
+  // A switch with ONLY a HOLD assigned is configured too — the TAP action code would read 0 for it.
+  const populated = switches.some((s) => (s.actionCode ?? 0) !== 0 || (s.targetIndex ?? 0) !== 0 || s.holdActionCode !== 0);
   return {
     at,
     populated,
     switches,
     geometry: 'per-index-observed-offsets',
-    evidence: { actionCodeIndices: [...PP_ACTION_CODE_INDICES], targetByteIndices: [...PP_TARGET_BYTE_INDICES] }
+    evidence: {
+      actionCodeIndices: [...PP_ACTION_CODE_INDICES],
+      targetByteIndices: [...PP_TARGET_BYTE_INDICES],
+      holdMeasuredIndices: [...PP_HOLD_MEASURED_INDICES]
+    }
   };
 }
 
@@ -393,7 +520,7 @@ export function parsePerPresetSwitches(body: ArrayLike<number>, count = PP_SWITC
 export function patchPerPresetSwitch(
   body: Uint8Array,
   index: number,
-  next: { actionCode?: number; targetIndex?: number }
+  next: { actionCode?: number; targetIndex?: number; holdActionCode?: number }
 ): boolean {
   const at = findPerPresetSwitchBlock(body);
   if (at === undefined) return false;
@@ -401,8 +528,9 @@ export function patchPerPresetSwitch(
   if (!Number.isInteger(index) || index < 1 || index > PP_SWITCH_COUNT) return false;
   const off = PP_MEASURED_OFFSETS[index];
   if (!off) return false; // no observed offset for this index
-  if (next.actionCode === undefined && next.targetIndex === undefined) return false;
+  if (next.actionCode === undefined && next.targetIndex === undefined && next.holdActionCode === undefined) return false;
   if (next.actionCode !== undefined && (!Number.isInteger(next.actionCode) || next.actionCode < 0 || next.actionCode > 0xffff)) return false;
+  if (next.holdActionCode !== undefined && (!Number.isInteger(next.holdActionCode) || next.holdActionCode < 0 || next.holdActionCode > 0xffff)) return false;
   if (next.targetIndex !== undefined) {
     if (!Number.isInteger(next.targetIndex) || next.targetIndex < 0 || next.targetIndex > 0xff) return false;
     if (off.target === undefined) return false; // this index's target byte has never been located
@@ -410,11 +538,19 @@ export function patchPerPresetSwitch(
   const put = (o: number, v: number): void => { body[o] = v & 0xff; body[o + 1] = (v >> 8) & 0xff; };
   if (next.actionCode !== undefined) put(at + off.actionCode, next.actionCode);
   if (next.targetIndex !== undefined) body[at + off.target!] = next.targetIndex & 0xff;
+  // The HOLD array's base is observed and uniform, so it needs no per-index offset check — but it is ONE
+  // unexercised row away from being wrong for rows nobody has tested, which is why `holdMeasured` exists and
+  // why a caller writing here should treat the read-back as the verdict (it always is).
+  if (next.holdActionCode !== undefined) put(at + PP_HOLD_ACTION_BASE + 2 * (index - 1), next.holdActionCode);
   return true;
 }
 
-/** True when `index` can be WRITTEN at all (an observed action-code offset), and whether its target byte can. */
-export function ppWritable(index: number): { any: boolean; target: boolean } {
+/**
+ * True when `index` can be WRITTEN at all (an observed action-code offset), whether its target byte can, and
+ * whether its HOLD code can. `hold` is true for every index because the HOLD ARRAY is located (measured at
+ * three exercised rows, in row order) rather than each row's offset being located separately.
+ */
+export function ppWritable(index: number): { any: boolean; target: boolean; hold: boolean } {
   const off = PP_MEASURED_OFFSETS[index];
-  return { any: !!off, target: !!off && off.target !== undefined };
+  return { any: !!off, target: !!off && off.target !== undefined, hold: !!off };
 }

@@ -15,8 +15,14 @@ import {
   parsePerPresetSwitches,
   patchPerPresetSwitch,
   ppActionName,
+  ppFunctionName,
+  ppTargetIsFxSlot,
   ppTargetLabel,
   ppWritable,
+  PP_FUNCTION_INDEX_BASE,
+  PP_FUNCTION_NAMES,
+  PP_HOLD_ACTION_BASE,
+  PP_HOLD_MEASURED_INDICES,
   PP_MEASURED_OFFSETS,
   PP_ACTION_CATEGORIES,
   PP_ACTION_CODE_INDICES,
@@ -27,7 +33,7 @@ import {
   PP_SWITCH_COUNT,
 } from '../../../src/devices/gen3/index.js';
 
-export const PER_PRESET_SWITCH_CASE_COUNT = 20;
+export const PER_PRESET_SWITCH_CASE_COUNT = 24;
 
 /**
  * body[11380..11600] of preset 410 — the marker pair at region offset 40 (absolute 11420) and zeros
@@ -55,7 +61,7 @@ function populatedSlice(): Uint8Array {
   // a little room, so the parser's "the observed offsets must fit inside the body" guard does not refuse the
   // fixture itself. This is the guard doing its job: every enlargement of the offset table shrinks what counts
   // as a valid slice, and a fixture that stops being valid reads as a decode regression.
-  const s = new Uint8Array(480);
+  const s = new Uint8Array(POPULATED_MARKER_AT + PP_REGION_BYTES + 32);
   s[POPULATED_MARKER_AT] = 0xf5; s[POPULATED_MARKER_AT + 1] = 0x05; s[POPULATED_MARKER_AT + 2] = 0x01; s[POPULATED_MARKER_AT + 3] = 0x00; // marker (region +8)
   s[12] = 0x04;  // PP#1 action code (marker+4) — Effect: Bypass
   s[14] = 0x03;  // PP#2 action code (marker+6) — Scene: Select
@@ -188,6 +194,7 @@ export function runPerPresetSwitchTests(): void {
     eq(ppTargetLabel(0), 'Amp 1', 'including the first one');
     eq(ppTargetLabel(14), 'FB Rtn 2', 'and the one located on 2026-10-09');
     eq(ppTargetLabel(8), 'Delay 2', 'plus the later one (Delay 1 = 7 → Delay 2 = 8: instances are consecutive)');
+    eq(ppTargetLabel(28), 'GEQ 2', 'plus GEQ 2 = 28, measured 2026-10-11 by pointing a Chan Select row at it — again consistent with GEQ 1 = 27');
     eq(ppTargetLabel(9), null, 'index 9 is inside the unlabelled band → null, not a guess');
     eq(ppTargetLabel(13), null, 'and so is 13 (FB Rtn 1 is a PREDICTION, not an observation)');
     eq(ppActionName(0x99), null, 'an unmeasured action code gets no function name');
@@ -315,13 +322,19 @@ export function runPerPresetSwitchTests(): void {
     for (const [code, name] of Object.entries(PP_ACTION_CATEGORIES)) {
       eq(name, EDITOR_CATEGORY_ORDER[Number(code)]!, `0x0${Number(code).toString(16)} is "${EDITOR_CATEGORY_ORDER[Number(code)]}" at that position`);
     }
-    // The codes this file does NOT carry are predictions (Bank 0x01, Layout 0x06, Per-Preset 0x09, View 0x0A,
-    // Setlist 0x0B, Song 0x0C, Song Section 0x0D). They must stay unnamed until a capture confirms them:
-    for (const predicted of [0x01, 0x06, 0x09, 0x0a, 0x0b, 0x0c, 0x0d]) {
-      eq(PP_ACTION_CATEGORIES[predicted], undefined, `0x0${predicted.toString(16)} is NOT named yet — the editor's list predicts it and a dump has to confirm it`);
-      eq(ppActionName(predicted), null, 'and it reports no name rather than the prediction');
+    // The seven codes that were PREDICTIONS until 2026-10-11 are now MEASURED: one edit set seven switches to the
+    // seven unmeasured categories, and all seven read exactly as predicted — including Layout (0x06), the gap
+    // inside the measured run, and Song Section (0x0D), the far end, which is where a hidden category would have
+    // shifted the sequence. They are named here BECAUSE a dump confirmed them — the same rule that kept them
+    // unnamed for a whole round.
+    const CONFIRMED: Array<[number, number]> = [
+      [0x01, 1], [0x06, 6], [0x09, 9], [0x0a, 10], [0x0b, 11], [0x0c, 12], [0x0d, 13]
+    ];
+    for (const [code, position] of CONFIRMED) {
+      eq(PP_ACTION_CATEGORIES[code], EDITOR_CATEGORY_ORDER[position]!, `0x0${code.toString(16)} is now MEASURED as "${EDITOR_CATEGORY_ORDER[position]}" at that position`);
     }
     eq(EDITOR_CATEGORY_ORDER.length, 14, 'the editor list has fourteen entries including Unassigned');
+    eq(Object.keys(PP_ACTION_CATEGORIES).length, 13, 'and this file names all thirteen non-Unassigned codes — none is left as a prediction');
   });
 
   t('a category that does not write record+0 leaves that field UNLOCATED — the bound is per FIELD', () => {
@@ -370,6 +383,75 @@ export function runPerPresetSwitchTests(): void {
     eq(Object.keys(PP_MEASURED_OFFSETS).length, 24, 'so all 24 switches are in the table');
     eq(Object.keys(PP_MEASURED_OFFSETS).filter((k) => PP_MEASURED_OFFSETS[Number(k)]!.target === undefined).length, 4,
       'with exactly four of them missing a located record+0 (18, 21, 22, 23 — the categories that do not write it)');
+  });
+
+  t('the TAP FUNCTION INDEX has its own array at marker+52, and it REPEATS when two switches share a function', () => {
+    // MEASURED 2026-10-11. The discriminator was written down BEFORE the dump: a function index predicts
+    // REPEATED values when two switches share a function, an allocation index predicts DISTINCT ascending ones.
+    // Five Chan Select rows all read 1 and three Scene: Toggles all read 1 — repeats — which killed the
+    // allocation reading, and the HOLD reading died with it (the HOLDs went to their own array; next case).
+    const body = populatedSlice();
+    body[POPULATED_MARKER_AT + PP_FUNCTION_INDEX_BASE] = 0;              // PP#1 — Bypass, the category's first entry
+    body[POPULATED_MARKER_AT + PP_FUNCTION_INDEX_BASE + 2 * 15] = 1;     // PP#16 — Scene: Toggle (entry 1)
+    body[POPULATED_MARKER_AT + PP_FUNCTION_INDEX_BASE + 2 * 16] = 1;     // PP#17 — Change Channel (entry 1, ANOTHER category)
+    const page = parsePerPresetSwitches(body)!;
+    eq(page.switches[15]!.functionIndex, 1, 'PP#16 reads function index 1');
+    eq(page.switches[16]!.functionIndex, 1, 'PP#17 reads the SAME value from a different category — the index is per CATEGORY, so cross-category repeats are expected, not a contradiction');
+    eq(page.switches[0]!.functionIndex, 0, 'and PP#1’s Bypass row reads 0, the Scene category’s Select row too — 0 is a real first entry, not "none"');
+    eq(PP_FUNCTION_INDEX_BASE + 2 * 23, 98, 'the array is 24 u16 wide: rows 12..24 sit at slots 74..98 (read with a tool, never counted by eye)');
+  });
+
+  t('the HOLD half is a SECOND action-code array at marker+436 (= 148 + 12×24), and a write lands there', () => {
+    // MEASURED 2026-10-11: the three HOLDs set that day read 0x08/0x05/0x07 at switches 16/17/18, in row order.
+    // The old "+100…+147 is the HOLD home" reading is REFUTED — that span stayed all zero.
+    const body = realSlice();
+    eq(body.length >= 40 + PP_HOLD_ACTION_BASE + 2 * PP_SWITCH_COUNT, true, 'the parser’s region guard now covers the HOLD array');
+    if (!patchPerPresetSwitch(body, 16, { holdActionCode: 0x08 })) throw new Error('a HOLD-only patch was refused');
+    eq(body[40 + PP_HOLD_ACTION_BASE + 2 * 15], 0x08, 'the HOLD code landed at marker+466 = 436 + 2×15');
+    const page = parsePerPresetSwitches(body)!;
+    eq(page.switches[15]!.holdActionCode, 0x08, 'and reads back');
+    eq(page.switches[15]!.holdAction, 'Looper (category — the mode is in the record)', 'named from the same code space as the TAP code');
+    eq(page.switches[15]!.holdMeasured, true, 'switch 16 is one of the three EXERCISED HOLDs');
+    eq(page.switches[0]!.holdActionCode, 0, 'an untouched row reads 0');
+    eq(page.switches[0]!.holdMeasured, false, 'and is flagged as never exercised — that zero is Unassigned by convention, not by observation');
+    eq(page.populated, true, 'a switch whose ONLY assignment is a HOLD still counts as configured');
+    eq(PP_HOLD_MEASURED_INDICES.join(','), '16,17,18', 'the exercised set is the three the owner set');
+    eq(ppWritable(16).hold, true, 'and the HOLD field is writable where the TAP offset is located');
+    eq(page.evidence.holdMeasuredIndices.join(','), '16,17,18', 'the page carries the exercised set as its own evidence list, distinct from the located-OFFSET lists');
+  });
+
+  t('the FX-slot anchor name is only claimable where the FUNCTION was measured', () => {
+    // Every anchor was measured with Effect: Bypass; a Chan Select row then matched the same table on four
+    // blocks (Chorus 1 = 2, Reverb 1 = 51, Delay 1 = 7, GEQ 2 = 28). Nothing else may name its target byte.
+    eq(ppTargetIsFxSlot(0x04, 0), true, 'Effect: Bypass (function 0)');
+    eq(ppTargetIsFxSlot(0x04, 1), true, 'Effect: Chan Select (function 1) — measured on four blocks');
+    eq(ppTargetIsFxSlot(0x04, 2), false, 'Effect: Chan Toggle (function 2) — never shown to be an FX slot');
+    eq(ppTargetIsFxSlot(0x04, 3), false, 'Effect: Chan Inc/Dec (function 3) — it left record+0 at ZERO');
+    eq(ppTargetIsFxSlot(0x03, 1), false, 'Scene: Toggle — the byte is a scene number');
+    eq(ppTargetIsFxSlot(0x01, 0), false, 'Bank — a bank number');
+    eq(ppTargetIsFxSlot(0x99, 0), false, 'an unmeasured code names nothing');
+    // The predicate is carried on the row, so no caller has to re-derive it from the two fields.
+    const okRow = parsePerPresetSwitches(populatedSlice())!.switches[0]!;
+    eq(okRow.actionCode, 0x04, 'PP#1 in this slice is an Effect row…');
+    eq(okRow.functionIndex, 0, '…whose function index is 0 (Bypass)…');
+    eq(okRow.targetIsFxSlot, true, '…so the anchor name applies here');
+    eq(ppFunctionName(0x04, 1), 'Chan Select', 'the function list the owner read off FM3-Edit');
+    eq(ppFunctionName(0x04, 3), 'Chan Inc/Dec', 'including the entry the docs had called "Parameter" — a function FM3-Edit does not offer');
+    eq(ppFunctionName(0x04, 9), null, 'an index nobody has named is null, never a guess');
+    eq(ppFunctionName(0x01, 0), null, 'and a category whose list nobody read names nothing');
+    eq(Object.keys(PP_FUNCTION_NAMES[0x07] ?? {}).length, 0, 'Control Switch has NO function entry: CS 1 and CS 4 both read index 0 — the switch number is a record field, not a function');
+  });
+
+  t('a HOLD-only patch is a patch, and an out-of-range HOLD code is refused', () => {
+    const body = realSlice();
+    eq(patchPerPresetSwitch(body, 3, {}), false, 'an empty patch is still refused');
+    eq(patchPerPresetSwitch(body, 3, { holdActionCode: 0x08 }), true, 'a HOLD-only patch is not empty');
+    const page = parsePerPresetSwitches(body)!;
+    eq(page.switches[2]!.actionCode, 0, 'the TAP side is untouched…');
+    eq(page.switches[2]!.holdActionCode, 0x08, '…and the HOLD moved');
+    eq(page.populated, true, 'so the block reports as populated on the HOLD alone');
+    eq(patchPerPresetSwitch(body, 3, { holdActionCode: 0x10000 }), false, 'a HOLD code wider than 16 bits is refused');
+    eq(patchPerPresetSwitch(body, 3, { holdActionCode: -1 }), false, 'and so is a negative one');
   });
 
   if (failures.length) throw new Error(`per-preset switches: ${failures.length} case(s) failed\n  - ${failures.join('\n  - ')}`);
