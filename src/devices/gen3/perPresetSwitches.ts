@@ -87,8 +87,18 @@
 //     CONSECUTIVE). Its CHANNEL number lives at record+2, zero-based letter order A=0 · B=1 · C=2 · D=3 (read
 //     on three rows: B, D and B), and +0 is ONE byte (Preset: Select 100 wrote 100). An earlier reading that
 //     put the channel at +4 came from a single row and is REFUTED.
-//     ⇒ The anchor names therefore apply to Bypass AND Change Channel rows, which is measured; they still do
-//     not apply to an Effect row whose function index (marker+52) is one of the unmeasured ones.
+//     ⇒ The anchor names therefore apply to an Effect: Bypass row AND to a channel row — with a naming
+//     correction: the owner read FM3-Edit's Effect TAP list out on 2026-10-11 and it is **0 Bypass · 1 Chan
+//     Select · 2 Chan Toggle · 3 Chan Inc/Dec**, so "Change Channel" was never the editor's word for index 1.
+//     They do NOT apply to a Chan Toggle or Chan Inc/Dec row: only Chan Select's +0 has been measured, and the
+//     sweep's Chan Inc/Dec row left +0 at ZERO.
+//   • **record+4 on a Chan Select row is the 2nd-press action.** FM3-Edit offers Off / Smart Bypass / Previous
+//     channel; the byte read 0 on the four rows set to Off and 1 on the one row set to Smart Bypass
+//     (owner-confirmed on the unit). So 0 = Off and 1 = Smart Bypass are MEASURED, and 2 = Previous channel is a
+//     PREDICTION that has never been observed. On the sweep's single Chan Toggle row the same byte read 1, where
+//     it could equally be that function's second channel — no claim is made for Toggle rows.
+//   • The LAYOUT record is **[layout number at +0, VIEW at +2]** — the owner read the row ("layout 2, and view
+//     as view 1") and the bytes then read 2 and 1. Both fields are attributed by the editor's own labels.
 //   ⇒ So `targetIndex` below is the byte at record+0, and it is only the "location" for the categories that use
 //     it. It is left UNLOCATED for the four rows whose +0 read zero (PP#18 Effect: Parameter, PP#21 Utility,
 //     PP#22 Looper, PP#23 Control Switch): a zero is not an observation, and those rows refuse a target
@@ -114,8 +124,13 @@
 // and Control Switch, and these slots read 1/1/1 while the HOLD codes appeared at marker+436 — below), and the
 // ascending 1,2,3,4 of the sweep was a coincidence of the functions that edit happened to choose (Scene: Toggle
 // = 1, two unmeasured Effect entries = 2 and 3, Preset: Increment = 4). Within-category function changes are
-// measured in BOTH directions: Scene 0 (Select) → 1 (Toggle), Effect 0 (Bypass) → 1 (Change Channel), Preset 0
-// (Select) → 4 (Increment, both in one capture), Looper 0 → 4 (Undo/Erase).
+// measured in BOTH directions: Scene 0 (Select) → 1 (Toggle), Effect 0 (Bypass) → 1 (Chan Select), Preset 0
+// (Select) → 4 (Increment, both in one capture), Looper 0 → 4 (Undo/Erase). The Effect list itself is now known
+// from the editor rather than inferred — 0 Bypass · 1 Chan Select · 2 Chan Toggle · 3 Chan Inc/Dec — which names
+// the sweep's rows 17 and 18 as **Chan Toggle** and **Chan Inc/Dec**, not the "Change Channel" and "Parameter"
+// this project had guessed at. The other categories' lists are only partially named (Scene: Select 0, Toggle 1 ·
+// Preset: Select 0, Increment 4 · Utility: Tuner 0 · Looper: Undo/Erase 4 · Control Switch: one entry, 0 on both
+// CS 1 and CS 4), so an index outside those stays a number.
 //
 // ⇒ THE HOLD HALF IS A SECOND 24-WIDE u16 ACTION-CODE ARRAY AT marker+436 + 2·(i−1), where 436 = 148 + 12×24 —
 // i.e. immediately after the twenty-fourth 12-byte record, one u16 per switch with the same width and stride as
