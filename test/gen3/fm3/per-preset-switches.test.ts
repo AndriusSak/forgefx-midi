@@ -125,13 +125,16 @@ export function runPerPresetSwitchTests(): void {
     eq(page.switches[11]!.confidence, 'measured', 'and PP#12 (marker+26 / marker+280)');
     eq(page.switches[12]!.confidence, 'measured', 'PP#13 as well (marker+28 / marker+292)');
     eq(page.switches[13]!.confidence, 'measured', 'PP#14 too — the category sweep located 14–23');
-    eq(page.switches[17]!.confidence, 'partial', 'but PP#18 (Effect: Parameter) has only its ACTION CODE located: record+0 read 0 there');
+    eq(page.switches[17]!.confidence, 'measured', 'PP#18 (Effect: Chan Inc/Dec) is measured since 2026-10-12 — its record+0 offset was located by the Cab 1 edit');
     eq(page.switches[17]!.actionCode, 0x04, 'so it reports its code');
-    eq(page.switches[17]!.targetIndex, null, 'and no target at all — never a value read out of a guessing position');
+    // PP#18's record+0 LEFT the unlocated set on 2026-10-12: the owner set that row's "Effect" field to Cab 1 and
+    // the byte at marker+352 changed, which is the observation that locates the offset. So a 0 read there is now a
+    // READING of the field (Amp 1 in the anchor table), not the absence of a target.
+    eq(page.switches[17]!.targetIndex, 0, 'PP#18 record+0 is located now and reads 0 in this slice — a reading, not an absence');
     eq(page.switches[23]!.confidence, 'measured', 'PP#24 is measured (marker+50 / marker+424)');
     eq(page.switches.length, PP_SWITCH_COUNT, 'twenty-four rows, one per switch the unit exposes');
     eq(page.switches.filter((s) => s.confidence === 'unknown').length, 0, 'no row is unread any more: all 24 have an observed action-code offset');
-    eq(page.switches.filter((s) => s.confidence === 'partial').length, 4, 'four rows are partial: 18, 21, 22, 23 (their categories do not write record+0)');
+    eq(page.switches.filter((s) => s.confidence === 'partial').length, 3, 'three rows are partial: 21, 22, 23 (their record+0 has only ever read zero)');
   });
 
   t('patch → parse round trip at the DOCUMENTED offsets (self-consistency, not device semantics)', () => {
@@ -218,10 +221,10 @@ export function runPerPresetSwitchTests(): void {
   t('the page reports WHICH indices the evidence reaches, per field', () => {
     const page = parsePerPresetSwitches(populatedSlice())!;
     eq(page.evidence.actionCodeIndices.length, 24, 'every switch has an observed action-code offset');
-    eq(page.evidence.targetByteIndices.join(','), '1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,19,20,24',
-      'and the located record+0 bytes are NOT a contiguous set: 18, 21, 22 and 23 read zero there');
-    eq(page.switches.filter((s) => s.confidence === 'measured').length, 20, 'twenty rows measured');
-    eq(page.switches.filter((s) => s.confidence === 'partial').length, 4, 'four partial — that is what a per-FIELD bound looks like when it is real');
+    eq(page.evidence.targetByteIndices.join(','), '1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,24',
+      'and the located record+0 bytes are still NOT a contiguous set: 21, 22 and 23 have only ever read zero there');
+    eq(page.switches.filter((s) => s.confidence === 'measured').length, 21, 'twenty-one rows measured');
+    eq(page.switches.filter((s) => s.confidence === 'partial').length, 3, 'three partial — that is what a per-FIELD bound looks like when it is real');
   });
 
   t('the evidence LISTS are DERIVED from the offset table (no second hand-kept number)', () => {
@@ -230,13 +233,13 @@ export function runPerPresetSwitchTests(): void {
       .filter((i) => PP_MEASURED_OFFSETS[i]!.target !== undefined).sort((a, b) => a - b);
     eq(PP_ACTION_CODE_INDICES.join(','), actionFromTable.join(','), 'action-code indices mirror the table');
     eq(PP_TARGET_BYTE_INDICES.join(','), targetFromTable.join(','), 'target-byte indices mirror the table');
-    eq(PP_TARGET_BYTE_INDICES.join(','), '1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,19,20,24', 'and that is exactly the set whose offset was OBSERVED — 18, 21, 22, 23 read zero there');
+    eq(PP_TARGET_BYTE_INDICES.join(','), '1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,24', 'and that is exactly the set whose offset was OBSERVED — 21, 22 and 23 have only ever read zero there');
     // The page carries the LISTS, never a count — the shape a reader can render without assuming contiguity.
-    // This is exactly the case that rule was written for: 20 measured, 4 partial, and no range or count can
+    // This is exactly the case that rule was written for: 21 measured, 3 partial, and no range or count can
     // express that.
     const page = parsePerPresetSwitches(populatedSlice())!;
     eq(page.evidence.actionCodeIndices.length, 24, 'the page carries all 24 action-code indices');
-    eq(page.evidence.targetByteIndices.join(','), '1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,19,20,24', 'and the target-byte indices');
+    eq(page.evidence.targetByteIndices.join(','), '1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,24', 'and the target-byte indices');
   });
 
   t('writing PP#1 leaves PP#2 untouched', () => {
@@ -275,7 +278,8 @@ export function runPerPresetSwitchTests(): void {
     eq(ppWritable(13).target, true, 'PP#13 too — the unit has more than twelve, and it is measured');
     eq(ppWritable(14).target, true, 'PP#14 as well: the sweep located marker+30 / marker+304');
     eq(ppWritable(18).any, true, 'PP#18 has an observed ACTION CODE (marker+38)…');
-    eq(ppWritable(18).target, false, '…but no located record+0, so a target write is refused — the bound is per FIELD');
+    eq(ppWritable(18).target, true, '…and since 2026-10-12 its record+0 too (marker+352, located by the Cab 1 edit) — a target write is allowed on both fields now');
+    eq(ppWritable(21).target, false, 'PP#21 is what the per-FIELD bound still refuses: its record+0 has only ever read zero, so there is no offset to write at');
     eq(ppWritable(24).target, true, 'PP#24 (the last one) is measured and writable');
     eq(ppWritable(25).any, false, 'while PP#25 does not exist on this device');
   });
@@ -337,24 +341,24 @@ export function runPerPresetSwitchTests(): void {
     eq(Object.keys(PP_ACTION_CATEGORIES).length, 13, 'and this file names all thirteen non-Unassigned codes — none is left as a prediction');
   });
 
-  t('a category that does not write record+0 leaves that field UNLOCATED — the bound is per FIELD', () => {
-    // PP#18 (Effect: Parameter), PP#21 (Utility: Tuner), PP#22 (Looper) and PP#23 (Control Switch) left the first
-    // byte of their 12-byte record at zero; PP#18 put its values at +2 and +8 instead. A zero is not an
-    // observation, so the codec keeps reporting their code and REFUSES a target write, rather than offering a
-    // field their category does not use. PP#14's record+0 DID hold a value (3 = a scene number, not an FX slot).
+  t('a row whose record+0 only ever read zero keeps that field UNLOCATED — the bound is per FIELD', () => {
+    // The per-FIELD bound, after PP#18 LEFT the unlocated set on 2026-10-12 (an edit moved its record+0, which a
+    // zero never could). What still refuses is the three rows whose first record byte has only ever read zero —
+    // PP#21 (Utility: Tuner), PP#22 (Looper), PP#23 (Control Switch) — because a zero is not an observation and
+    // there is no offset to write at. PP#14's record+0 DID hold a value (3 = a scene number, not an FX slot).
     const body = populatedSlice();
     body[POPULATED_MARKER_AT + 30] = 0x03;   // PP#14 action code — Scene
     body[POPULATED_MARKER_AT + 304] = 3;     // PP#14 record+0 — the SCENE number
     body[POPULATED_MARKER_AT + 38] = 0x04;   // PP#18 action code — Effect
-    // PP#18's record+0 stays 0; its real values would sit at +2/+8, which this codec does not read.
     const page = parsePerPresetSwitches(body)!;
     eq(page.switches[13]!.actionCode, 0x03, 'PP#14 code');
     eq(page.switches[13]!.targetIndex, 3, 'PP#14 record+0 = 3');
     eq(page.switches[13]!.targetLabel, 'Chorus 2', 'and the anchor table names index 3 — CORRECTLY for an Effect action, and misleading for this Scene one, which is why the view withholds the name');
     eq(page.switches[17]!.actionCode, 0x04, 'PP#18 code');
-    eq(page.switches[17]!.targetIndex, null, 'but no record+0 value is claimed for it');
-    eq(patchPerPresetSwitch(body, 18, { targetIndex: 3 }), false, 'so a target write there is refused');
-    eq(patchPerPresetSwitch(body, 18, { actionCode: 0x05 }), true, 'while its action code can be written');
+    eq(page.switches[17]!.targetIndex, 0, 'PP#18 record+0 is located now, so the 0 it reads here is a READING (Amp 1), not an absence');
+    eq(patchPerPresetSwitch(body, 18, { targetIndex: 3 }), true, 'and a target write there is accepted on both fields');
+    eq(patchPerPresetSwitch(body, 21, { targetIndex: 3 }), false, 'PP#21 is what the bound still refuses: no located record+0, so no offset to write at');
+    eq(patchPerPresetSwitch(body, 21, { actionCode: 0x05 }), true, 'while its action code can be written');
     eq(patchPerPresetSwitch(body, 14, { targetIndex: 7 }), true, 'and PP#14 takes both fields');
   });
 
@@ -379,10 +383,10 @@ export function runPerPresetSwitchTests(): void {
     eq(PP_MEASURED_OFFSETS[14]!.actionCode, 30, 'PP#14 action code — the sweep measured 14–23 too');
     eq(PP_MEASURED_OFFSETS[14]!.target, 304, 'and PP#14 record+0 — the SCENE number lives there for a Scene action');
     eq(PP_MEASURED_OFFSETS[18]!.actionCode, 38, 'PP#18 action code is observed…');
-    eq(PP_MEASURED_OFFSETS[18]!.target, undefined, '…while its record+0 is NOT: the field read zero, and a zero is not an observation');
+    eq(PP_MEASURED_OFFSETS[18]!.target, 352, '…and its record+0 was LOCATED on 2026-10-12 by the edit that set the row to Cab 1 (the byte changed, which is the observation a zero could never be)');
     eq(Object.keys(PP_MEASURED_OFFSETS).length, 24, 'so all 24 switches are in the table');
-    eq(Object.keys(PP_MEASURED_OFFSETS).filter((k) => PP_MEASURED_OFFSETS[Number(k)]!.target === undefined).length, 4,
-      'with exactly four of them missing a located record+0 (18, 21, 22, 23 — the categories that do not write it)');
+    eq(Object.keys(PP_MEASURED_OFFSETS).filter((k) => PP_MEASURED_OFFSETS[Number(k)]!.target === undefined).length, 3,
+      'with exactly three left missing a located record+0 (21, 22, 23 — the rows whose byte has only ever read zero)');
   });
 
   t('the TAP FUNCTION INDEX has its own array at marker+52, and it REPEATS when two switches share a function', () => {

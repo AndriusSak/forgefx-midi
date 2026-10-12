@@ -124,13 +124,19 @@
 //   • The LAYOUT record is **[layout number at +0, VIEW at +2]** — the owner read the row ("layout 2, and view
 //     as view 1") and the bytes then read 2 and 1. Both fields are attributed by the editor's own labels.
 //   ⇒ So `targetIndex` below is the byte at record+0, and it is only the "location" for the categories that use
-//     it. It is left UNLOCATED for the four rows whose +0 read zero (PP#18 Effect: Parameter, PP#21 Utility,
-//     PP#22 Looper, PP#23 Control Switch): a zero is not an observation, and those rows refuse a target
-//     write because that FIELD's offset was never located for them. The rule is per FIELD and keyed on the
-//     observation, NOT on the category: `patchPerPresetSwitch` never looks at the code, so an index measured
-//     only half-way stays half-writable even if it is later assigned a category that does use +0.
-//   ⇒ Decoding the per-category record layout (+2/+4/+6/+8) is OPEN — it needs one edit per category, and the
-//     owner has confirmed the assignments for 14–23 only in outline.
+//     it. It remains UNLOCATED for THREE rows — PP#21 Utility, PP#22 Looper, PP#23 Control Switch — whose +0 has
+//     only ever read zero: a zero is not an observation, so those rows refuse a target write because that
+//     FIELD's offset was never located for them. (PP#18 used to be in that list and LEFT it on 2026-10-12: the
+//     owner set that row's "Effect" field to Cab 1 and record+0 read 1, which is the observation that locates it.)
+//     The rule is per FIELD and keyed on the observation, NOT on the category: `patchPerPresetSwitch` never looks
+//     at the code, so an index measured only half-way stays half-writable even if it is later assigned a category
+//     that does use +0.
+//   ⇒ The per-category record layout is MEASURED for the functions that were exercised, and the rule is the
+//     simple one: **field n of the row's field list sits at record + 2n** — confirmed 2026-10-12 on a five-field
+//     function (Effect: Chan Inc/Dec), whose displayed values land on +0/+2/+4/+6/+8 in order (Effect = Cab 1,
+//     Increment/Decrement = "+2", Wrap, Lower limit = C, Upper limit = B). The FIELD LISTS per (category,
+//     function) are the owner's read-out, recorded in `review-2026-10-09/HARDWARE-ROUND-PLAN.md`; this codec
+//     still exposes only record+0 because that is the only field whose MEANING is decoded per function.
 //
 // THERE IS A **SECOND** u16 ARRAY, ONE ENTRY PER SWITCH, STARTING AT marker+52 — and here is exactly how much
 // of that sentence is measured. OBSERVED: the sweep moved four bytes at marker+82/+84/+86/+90, reading 1/2/3/4
@@ -209,7 +215,7 @@ export const PP_MEASURED_OFFSETS: Readonly<Record<number, PpMeasuredOffsets>> = 
   15: { actionCode: 32, target: 316 },   // Scene: Select → 7, the second scene in the pair
   16: { actionCode: 34, target: 328 },   // scene flavour #2 → +0=1 and +2=1
   17: { actionCode: 36, target: 340 },   // the sweep's Chan Toggle → +0=2 and +4=1 (Chan Select since 2026-10-11 → +0=7)
-  18: { actionCode: 38 },                // the sweep's Chan Inc/Dec → +0 read ZERO, values sit at +2/+8 (see the header)
+  18: { actionCode: 38, target: 352 },   // Effect: Chan Inc/Dec → record+0 IS its "Effect" field: the owner set it to Cab 1 and it read 1 (2026-10-12), so the offset is OBSERVED now and a 0 there is a reading, not an absence
   19: { actionCode: 40, target: 364 },   // Preset: Select → record+0 read 28 (a PRESET number)
   20: { actionCode: 42, target: 376 },   // Preset: Increment → +0=1 with a u16 511 at +6
   21: { actionCode: 44 },                // Utility: Tuner → the whole record read zero
@@ -226,8 +232,9 @@ export const PP_TARGET_OFFSET = PP_MEASURED_OFFSETS[1]!.target!;
  * How many per-preset switches an FM3 exposes. Was an ASSUMPTION of 12 until 2026-10-09, when FM3-Edit's list
  * (24 rows) was tested rather than believed: PP#13 and PP#24 read back the predicted bytes at marker+28/+50 and
  * marker+292/+424, so the count is **24** and the whole range shares the two strides. Every index now has an
- * OBSERVED action-code offset (the ten-function sweep located 14–23); four of them (18, 21, 22, 23) have no
- * located record+0, and their target field reports null rather than an extrapolated value.
+ * OBSERVED action-code offset (the ten-function sweep located 14–23); THREE of them (21, 22, 23) have no located
+ * record+0, and their target field reports null rather than an extrapolated value. (Those three read zero there in
+ * every capture; PP#18 left the list on 2026-10-12 when its block field was set to Cab 1 and the byte moved.)
  */
 export const PP_SWITCH_COUNT = 24;
 
