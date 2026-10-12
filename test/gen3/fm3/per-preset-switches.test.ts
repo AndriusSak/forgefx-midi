@@ -438,8 +438,21 @@ export function runPerPresetSwitchTests(): void {
     eq(ppFunctionName(0x04, 1), 'Chan Select', 'the function list the owner read off FM3-Edit');
     eq(ppFunctionName(0x04, 3), 'Chan Inc/Dec', 'including the entry the docs had called "Parameter" — a function FM3-Edit does not offer');
     eq(ppFunctionName(0x04, 9), null, 'an index nobody has named is null, never a guess');
-    eq(ppFunctionName(0x01, 0), null, 'and a category whose list nobody read names nothing');
-    eq(Object.keys(PP_FUNCTION_NAMES[0x07] ?? {}).length, 0, 'Control Switch has NO function entry: CS 1 and CS 4 both read index 0 — the switch number is a record field, not a function');
+    // The 2026-10-12 read-out named every category EXCEPT Per-Preset and Song Section, so a named list is now
+    // long enough to WRAP: an index past its last entry is a number, never a guess at the next entry.
+    eq(ppFunctionName(0x01, 2), 'Inc/Dec', 'Bank: the third of three entries');
+    eq(ppFunctionName(0x01, 3), null, 'one past the end of Bank names nothing');
+    eq(ppFunctionName(0x02, 1), 'Select in Bank', 'Preset carries FIVE entries, so index 1 is a real name and not a hole in the table');
+    eq(ppFunctionName(0x02, 4), 'Inc/Dec', 'and index 4 is the one the checker pins on the wire (slot 20 = 4)');
+    eq(ppFunctionName(0x05, 4), 'Scene Level + Save', 'Utility: the last of five');
+    eq(ppFunctionName(0x08, 5), 'Half Speed', 'Looper: six entries, so the bound is 5 — the string the docs never had');
+    eq(ppFunctionName(0x08, 6), null, 'one past Looper’s last entry is a number');
+    eq(ppFunctionName(0x07, 0), 'Momentary', 'Control Switch names its two functions now');
+    eq(ppFunctionName(0x07, 1), 'Latching', 'both of which hold a single "Control Switch" field');
+    eq(ppFunctionName(0x07, 2), null, 'two entries only — CS 1 and CS 4 both reading index 0 is the SWITCH NUMBER at record+0, not a missing list');
+    eq(ppFunctionName(0x09, 0), null, 'Per-Preset stays unnamed: the read-out gave no ordered list');
+    eq(ppFunctionName(0x0D, 0), null, 'and Song Section stays unnamed for the same reason — "same as Song" does not name them');
+    eq(Object.keys(PP_FUNCTION_NAMES).length, 11, 'eleven of the thirteen categories carry a name list; 0x09 and 0x0D are the two whose lists were never read');
   });
 
   t('a HOLD-only patch is a patch, and an out-of-range HOLD code is refused', () => {

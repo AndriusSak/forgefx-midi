@@ -274,18 +274,37 @@ export const PP_HOLD_ACTION_BASE = 148 + 12 * PP_SWITCH_COUNT;
 export const PP_HOLD_MEASURED_INDICES: readonly number[] = [16, 17, 18];
 
 /**
- * The measured TAP-function names, by category code then function index. PARTIAL ON PURPOSE: only the entries
- * whose name the owner read off FM3-Edit's own list, or whose function a named assignment identified, are here.
- * An index outside this table is a NUMBER — never a plausible name (the rule the FX-slot anchors follow too).
- * `0x07` carries no entry: Control Switch rows read index 0 for both "Control Switch 1" and "Control Switch 4",
- * because the switch NUMBER is a record field, not a function.
+ * The TAP-function names, by category code then function index. SOURCE: the owner read FM3-Edit's per-preset
+ * switch menus out on **2026-10-12**, in their display order, one list per category. The index order IS the
+ * menu order — an assumption, not a wire reading: the value direction is pinned (a row set to Preset Inc/Dec
+ * reads 4, Chan Select rows read 1), but no measurement yet proves the editor stores entry #n at index n.
+ * `ROUND 11 → R11-P0-C` in `review-2026-10-09/HARDWARE-ROUND-PLAN.md` is the three-row confirmation that
+ * settles it (Looper Half Speed → 5, Utility Scene Level + Save → 4, Control Switch Latching → 1).
+ *
+ * STILL PARTIAL, and the gaps are deliberate:
+ * - `0x09` Per-Preset is ABSENT — the read-out says "Placeholder function and Per-Preset Switch" with no
+ *   ordered list, and a name nobody read is exactly what this table must not carry.
+ * - `0x0D` Song Section is ABSENT for the same reason ("same as Song, except naming" does not name them).
+ * An index outside a category's list is a NUMBER, never a plausible name (same rule as the FX-slot anchors).
+ * A category's list length is also its bound: `0x08` has six entries, so index 6+ prints as a number.
+ *
+ * `0x07` Control Switch DOES carry entries now: the menu's two functions are Momentary (0) and Latching (1),
+ * both holding a single "Control Switch" field. The earlier note that this category is name-less was about the
+ * SWITCH NUMBER (a record field, so "Control Switch 1" and "Control Switch 4" both read index 0) — both of
+ * those rows were Momentary, which is index 0 under this menu, so the two readings agree rather than conflict.
  */
 export const PP_FUNCTION_NAMES: Readonly<Record<number, Readonly<Record<number, string>>>> = {
-  0x02: { 0: 'Select', 4: 'Increment' },
-  0x03: { 0: 'Select', 1: 'Toggle' },
+  0x01: { 0: 'Select', 1: 'Toggle', 2: 'Inc/Dec' },
+  0x02: { 0: 'Select by #', 1: 'Select in Bank', 2: 'Toggle by #', 3: 'Toggle in Bank', 4: 'Inc/Dec' },
+  0x03: { 0: 'Select', 1: 'Toggle', 2: 'Inc/Dec' },
   0x04: { 0: 'Bypass', 1: 'Chan Select', 2: 'Chan Toggle', 3: 'Chan Inc/Dec' },
-  0x05: { 0: 'Tuner' },
-  0x08: { 4: 'Undo/Erase' }
+  0x05: { 0: 'Tuner', 1: 'Tap Tempo', 2: 'Amp Level + Save', 3: 'Reveal Hold', 4: 'Scene Level + Save' },
+  0x06: { 0: 'Select', 1: 'Master Layout', 2: 'Inc/Dec' },
+  0x07: { 0: 'Momentary', 1: 'Latching' },
+  0x08: { 0: 'Record', 1: 'Play/Stop', 2: 'Reverse', 3: 'Once', 4: 'Undo/Erase', 5: 'Half Speed' },
+  0x0A: { 0: 'Select', 1: 'Inc/Dec' },
+  0x0B: { 0: 'Select', 1: 'Toggle', 2: 'Inc/Dec' },
+  0x0C: { 0: 'Select in Set', 1: 'Toggle in Set', 2: 'Inc/Dec in Set' }
 };
 
 /** The measured name of a TAP function, or null when its index (or its whole category) was never named. */
