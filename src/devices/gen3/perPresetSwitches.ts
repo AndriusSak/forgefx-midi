@@ -334,18 +334,28 @@ export function ppFunctionName(actionCode: number | null, functionIndex: number 
 }
 
 /**
- * Whether the FX-slot ANCHOR table may name this row's target byte — MEASURED, not inferred.
+ * Whether the FX-slot ANCHOR table may name this row's target byte. Covers the whole Effect category, with the
+ * evidence for each function stated per function — the point of this predicate is that the name is attached
+ * ONLY where the byte was shown to be a block:
  *
- * The anchors were originally all measured with Effect: Bypass. On 2026-10-11 a Chan Select row was pointed at a
- * known block four times (Chorus 1, Reverb 1, Delay 1, GEQ 2) and record+0 read 2, 51, 7, 28 — the FX-slot index
- * every time — so the table provably covers **Bypass (function 0) and Chan Select (function 1)**. It does NOT
- * cover the other Effect functions: Chan Inc/Dec left record+0 at zero in the sweep, and Chan Toggle's +0 has
- * never been shown to be a block. Every non-Effect category stores something else there (a scene number, a
- * preset number, a layout, a control-switch number), so the name must not appear beside them.
+ * | Effect function | evidence |
+ * |---|---|
+ * | `0 Bypass` | the anchor table was MEASURED with Bypass selected (15 entries, one edit + one dump each) |
+ * | `1 Chan Select` | MEASURED 2026-10-11: pointed at four known blocks (Chorus 1, Reverb 1, Delay 1, GEQ 2) and record+0 read 2, 51, 7, 28 |
+ * | `2 Chan Toggle` | MEASURED 2026-10-12: `targetIndex 51` written to a Chan Toggle row through the route moved marker+340 `2 → 51` and NOTHING else (the dump is the independent path), and the restore left the buffer byte-identical |
+ * | `3 Chan Inc/Dec` | MEASURED 2026-10-12: the owner set the row's "Effect" field to Cab 1 and record+0 read 1, the anchor index for Cab 1 |
+ *
+ * All four functions also label this field **"Effect"** in FM3-Edit's own row (owner read-out, 2026-10-12) — the
+ * layout-widget rule this project already relies on: the device's editor is evidence for what a byte means. The
+ * wire readings agree with the table for every one of them, so no part of this predicate rests on a label alone.
+ *
+ * Still NOT covered, deliberately: every other category stores something else in record+0 — a scene number, a
+ * preset number, a layout, a control-switch number — so an Effect-only predicate is what keeps "Chorus 1" off a
+ * scene row. (Function index `null` = no observation, and gets no name either.)
  */
 export function ppTargetIsFxSlot(actionCode: number | null, functionIndex: number | null): boolean {
   if (actionCode !== 0x04) return false;
-  return functionIndex === 0 || functionIndex === 1;
+  return functionIndex === 0 || functionIndex === 1 || functionIndex === 2 || functionIndex === 3;
 }
 
 /**

@@ -425,8 +425,12 @@ export function runPerPresetSwitchTests(): void {
     // blocks (Chorus 1 = 2, Reverb 1 = 51, Delay 1 = 7, GEQ 2 = 28). Nothing else may name its target byte.
     eq(ppTargetIsFxSlot(0x04, 0), true, 'Effect: Bypass (function 0)');
     eq(ppTargetIsFxSlot(0x04, 1), true, 'Effect: Chan Select (function 1) — measured on four blocks');
-    eq(ppTargetIsFxSlot(0x04, 2), false, 'Effect: Chan Toggle (function 2) — never shown to be an FX slot');
-    eq(ppTargetIsFxSlot(0x04, 3), false, 'Effect: Chan Inc/Dec (function 3) — it left record+0 at ZERO');
+    // The whole Effect category is covered as of 2026-10-12, and each function got there by its own measurement:
+    // function 2 by writing targetIndex 51 to a Chan Toggle row and reading marker+340 back as 51 (the only byte
+    // that moved), function 3 by the owner setting the row's "Effect" field to Cab 1 and record+0 reading 1.
+    eq(ppTargetIsFxSlot(0x04, 2), true, 'Effect: Chan Toggle (function 2) — MEASURED 2026-10-12 by an isolated target write');
+    eq(ppTargetIsFxSlot(0x04, 3), true, 'Effect: Chan Inc/Dec (function 3) — MEASURED 2026-10-12: its "Effect" field set to Cab 1 read back as 1');
+    eq(ppTargetIsFxSlot(0x04, null), false, 'an UNOBSERVED function index gets no name — the mode is what the name depends on');
     eq(ppTargetIsFxSlot(0x03, 1), false, 'Scene: Toggle — the byte is a scene number');
     eq(ppTargetIsFxSlot(0x01, 0), false, 'Bank — a bank number');
     eq(ppTargetIsFxSlot(0x99, 0), false, 'an unmeasured code names nothing');
