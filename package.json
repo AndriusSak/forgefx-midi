@@ -72,6 +72,10 @@
       "types": "./dist/devices/gen3/index.d.ts",
       "default": "./dist/devices/gen3/index.js"
     },
+    "./devices/gen3/perPresetSwitches": {
+      "types": "./dist/devices/gen3/perPresetSwitches.d.ts",
+      "default": "./dist/devices/gen3/perPresetSwitches.js"
+    },
     "./devices/am4": {
       "types": "./dist/devices/am4/index.d.ts",
       "default": "./dist/devices/am4/index.js"
