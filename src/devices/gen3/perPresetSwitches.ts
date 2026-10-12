@@ -124,10 +124,12 @@
 //   • The LAYOUT record is **[layout number at +0, VIEW at +2]** — the owner read the row ("layout 2, and view
 //     as view 1") and the bytes then read 2 and 1. Both fields are attributed by the editor's own labels.
 //   ⇒ So `targetIndex` below is the byte at record+0, and it is only the "location" for the categories that use
-//     it. It remains UNLOCATED for THREE rows — PP#21 Utility, PP#22 Looper, PP#23 Control Switch — whose +0 has
-//     only ever read zero: a zero is not an observation, so those rows refuse a target write because that
-//     FIELD's offset was never located for them. (PP#18 used to be in that list and LEFT it on 2026-10-12: the
-//     owner set that row's "Effect" field to Cab 1 and record+0 read 1, which is the observation that locates it.)
+//     it. It remains UNLOCATED for TWO rows — PP#21 Utility, PP#22 Looper — whose +0 has only ever read zero: a
+//     zero is not an observation, so those rows refuse a target write because that FIELD's offset was never
+//     located for them. (PP#18 used to be in that list and LEFT it on 2026-10-12: the owner set that row's
+//     "Effect" field to Cab 1 and record+0 read 1, which is the observation that locates it. PP#23 LEFT it the
+//     same day: the owner set its Control Switch number 1→4 and the byte at marker+412 moved 0x00→0x03 — the
+//     ONLY body byte the edit moved, with the row's action code and function index unchanged.)
 //     The rule is per FIELD and keyed on the observation, NOT on the category: `patchPerPresetSwitch` never looks
 //     at the code, so an index measured only half-way stays half-writable even if it is later assigned a category
 //     that does use +0.
@@ -220,7 +222,7 @@ export const PP_MEASURED_OFFSETS: Readonly<Record<number, PpMeasuredOffsets>> = 
   20: { actionCode: 42, target: 376 },   // Preset: Increment → +0=1 with a u16 511 at +6
   21: { actionCode: 44 },                // Utility: Tuner → the whole record read zero
   22: { actionCode: 46 },                // Looper → the whole record read zero
-  23: { actionCode: 48 },                // Control Switch → the whole record read zero
+  23: { actionCode: 48, target: 412 },   // Control Switch → record+0 IS its LOCATION field: the owner set its Control Switch number 1→4 and it read 3, zero-based (2026-10-12), so the offset is OBSERVED now and a 0 there is a reading, not an absence
   24: { actionCode: 50, target: 424 }
 };
 
@@ -232,9 +234,10 @@ export const PP_TARGET_OFFSET = PP_MEASURED_OFFSETS[1]!.target!;
  * How many per-preset switches an FM3 exposes. Was an ASSUMPTION of 12 until 2026-10-09, when FM3-Edit's list
  * (24 rows) was tested rather than believed: PP#13 and PP#24 read back the predicted bytes at marker+28/+50 and
  * marker+292/+424, so the count is **24** and the whole range shares the two strides. Every index now has an
- * OBSERVED action-code offset (the ten-function sweep located 14–23); THREE of them (21, 22, 23) have no located
- * record+0, and their target field reports null rather than an extrapolated value. (Those three read zero there in
- * every capture; PP#18 left the list on 2026-10-12 when its block field was set to Cab 1 and the byte moved.)
+ * OBSERVED action-code offset (the ten-function sweep located 14–23); TWO of them (21, 22) have no located
+ * record+0, and their target field reports null rather than an extrapolated value. (Those two read zero there in
+ * every capture; PP#18 and PP#23 left the list on 2026-10-12 when an edit moved their record+0 — Cab 1 for #18,
+ * the Control Switch number 1→4 for #23.)
  */
 export const PP_SWITCH_COUNT = 24;
 
