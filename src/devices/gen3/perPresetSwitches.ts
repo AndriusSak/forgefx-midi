@@ -295,9 +295,9 @@ const PP_PER_PRESET_REFERENCE_NAMES: Readonly<Record<number, string>> = Object.f
  * order. The rows were chosen for their index being NON-ZERO and unique: a first entry would have predicted 0
  * under every candidate ordering and proved nothing.
  *
- * STILL PARTIAL, and the gap is deliberate:
- * - `0x0D` Song Section is ABSENT — the owner's read-out gives its FIELDS but not its three function names
- *   ("same as Song, except naming"), and a name nobody read is exactly what this table must not carry.
+ * COMPLETE for all thirteen categories: `0x0D` Song Section reads `Select · Toggle · Inc/Dec` (same entry names
+ * as Scene and Bank, unlike Song's own "…in Set" wording) with fields `[Song Section]`,
+ * `[Primary Section, Secondary Section]` and the four standard ones.
  * An index outside a category's list is a NUMBER, never a plausible name (same rule as the FX-slot anchors).
  * A category's list length is also its bound: `0x08` has six entries, so index 6+ prints as a number.
  *
@@ -323,7 +323,8 @@ export const PP_FUNCTION_NAMES: Readonly<Record<number, Readonly<Record<number, 
   0x09: PP_PER_PRESET_REFERENCE_NAMES,
   0x0A: { 0: 'Select', 1: 'Inc/Dec' },
   0x0B: { 0: 'Select', 1: 'Toggle', 2: 'Inc/Dec' },
-  0x0C: { 0: 'Select in Set', 1: 'Toggle in Set', 2: 'Inc/Dec in Set' }
+  0x0C: { 0: 'Select in Set', 1: 'Toggle in Set', 2: 'Inc/Dec in Set' },
+  0x0D: { 0: 'Select', 1: 'Toggle', 2: 'Inc/Dec' }
 };
 
 /** The measured name of a TAP function, or null when its index (or its whole category) was never named. */

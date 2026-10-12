@@ -454,8 +454,11 @@ export function runPerPresetSwitchTests(): void {
     eq(ppFunctionName(0x09, 1), 'PP#1', '…then the per-preset switches themselves, so its index is a REFERENCE to a switch, not a mode');
     eq(ppFunctionName(0x09, 24), 'PP#24', 'the twenty-fourth entry is the last — built from PP_SWITCH_COUNT so the two cannot drift');
     eq(ppFunctionName(0x09, 25), null, 'and one past it names nothing');
-    eq(Object.keys(PP_FUNCTION_NAMES).length, 12, 'twelve of the thirteen categories carry a name list; 0x0D is the only one whose names were never read');
-    eq(ppFunctionName(0x0D, 0), null, 'Song Section stays unnamed: the read-out gave its FIELDS but not its three function names');
+    eq(ppFunctionName(0x0D, 0), 'Select', 'Song Section names its entries Select/Toggle/Inc/Dec — same words as Scene and Bank, not Song’s "…in Set" wording');
+    eq(ppFunctionName(0x0D, 1), 'Toggle', 'so a reader cannot tell a Song Section row from a Scene row by its function name alone — the CATEGORY is what distinguishes them');
+    eq(ppFunctionName(0x0D, 2), 'Inc/Dec', 'the third of three entries');
+    eq(ppFunctionName(0x0D, 3), null, 'and one past the end names nothing');
+    eq(Object.keys(PP_FUNCTION_NAMES).length, 13, 'ALL thirteen categories now carry a name list — the owner read every one out');
   });
 
   t('a HOLD-only patch is a patch, and an out-of-range HOLD code is refused', () => {
