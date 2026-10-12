@@ -274,17 +274,30 @@ export const PP_HOLD_ACTION_BASE = 148 + 12 * PP_SWITCH_COUNT;
 export const PP_HOLD_MEASURED_INDICES: readonly number[] = [16, 17, 18];
 
 /**
+ * `0x09` Per-Preset's entries: "Placeholder" followed by the twenty-four per-preset switches, in the order
+ * FM3-Edit lists them (owner read-out, 2026-10-12). Built rather than typed out so the list cannot disagree
+ * with `PP_SWITCH_COUNT`. NOTE the shape: for this category the index is not a MODE, it is a reference to
+ * another switch, which is why `PP_FUNCTION_NAMES[0x09]` reads as names of switches rather than of functions.
+ */
+const PP_PER_PRESET_REFERENCE_NAMES: Readonly<Record<number, string>> = Object.fromEntries([
+  [0, 'Placeholder'],
+  ...Array.from({ length: PP_SWITCH_COUNT }, (_, n) => [n + 1, `PP#${n + 1}`] as [number, string])
+]);
+
+/**
  * The TAP-function names, by category code then function index. SOURCE: the owner read FM3-Edit's per-preset
- * switch menus out on **2026-10-12**, in their display order, one list per category. The index order IS the
- * menu order — an assumption, not a wire reading: the value direction is pinned (a row set to Preset Inc/Dec
- * reads 4, Chan Select rows read 1), but no measurement yet proves the editor stores entry #n at index n.
- * `ROUND 11 → R11-P0-C` in `review-2026-10-09/HARDWARE-ROUND-PLAN.md` is the three-row confirmation that
- * settles it (Looper Half Speed → 5, Utility Scene Level + Save → 4, Control Switch Latching → 1).
+ * switch menus out on **2026-10-12**, in their display order, one list per category.
  *
- * STILL PARTIAL, and the gaps are deliberate:
- * - `0x09` Per-Preset is ABSENT — the read-out says "Placeholder function and Per-Preset Switch" with no
- *   ordered list, and a name nobody read is exactly what this table must not carry.
- * - `0x0D` Song Section is ABSENT for the same reason ("same as Song, except naming" does not name them).
+ * THE INDEX ORDER IS NOW A MEASUREMENT, not an assumption: `ROUND 11 → R11-P0-C` set three rows to the LAST
+ * entry of their lists and read the wire — Looper: Half Speed → `5` (of six), Utility: Scene Level + Save → `4`
+ * (of five), Control Switch: Latching → `1` (of two). All three landed exactly (fixture
+ * `preset-410-r11-p0c.bin`, pinned in `check-switch-offsets.ts`), so the editor lists its entries in index
+ * order. The rows were chosen for their index being NON-ZERO and unique: a first entry would have predicted 0
+ * under every candidate ordering and proved nothing.
+ *
+ * STILL PARTIAL, and the gap is deliberate:
+ * - `0x0D` Song Section is ABSENT — the owner's read-out gives its FIELDS but not its three function names
+ *   ("same as Song, except naming"), and a name nobody read is exactly what this table must not carry.
  * An index outside a category's list is a NUMBER, never a plausible name (same rule as the FX-slot anchors).
  * A category's list length is also its bound: `0x08` has six entries, so index 6+ prints as a number.
  *
@@ -292,6 +305,11 @@ export const PP_HOLD_MEASURED_INDICES: readonly number[] = [16, 17, 18];
  * both holding a single "Control Switch" field. The earlier note that this category is name-less was about the
  * SWITCH NUMBER (a record field, so "Control Switch 1" and "Control Switch 4" both read index 0) — both of
  * those rows were Momentary, which is index 0 under this menu, so the two readings agree rather than conflict.
+ *
+ * `0x09` Per-Preset is a DIFFERENT SHAPE from every other category and the table says so: its entries are
+ * "Placeholder" then the twenty-four per-preset switches, i.e. for a Per-Preset row the function index is a
+ * REFERENCE to another switch, not a mode. Kept as names anyway because that is what the editor shows; a
+ * caller that needs the reference reads `functionIndex` and not the string.
  */
 export const PP_FUNCTION_NAMES: Readonly<Record<number, Readonly<Record<number, string>>>> = {
   0x01: { 0: 'Select', 1: 'Toggle', 2: 'Inc/Dec' },
@@ -302,6 +320,7 @@ export const PP_FUNCTION_NAMES: Readonly<Record<number, Readonly<Record<number, 
   0x06: { 0: 'Select', 1: 'Master Layout', 2: 'Inc/Dec' },
   0x07: { 0: 'Momentary', 1: 'Latching' },
   0x08: { 0: 'Record', 1: 'Play/Stop', 2: 'Reverse', 3: 'Once', 4: 'Undo/Erase', 5: 'Half Speed' },
+  0x09: PP_PER_PRESET_REFERENCE_NAMES,
   0x0A: { 0: 'Select', 1: 'Inc/Dec' },
   0x0B: { 0: 'Select', 1: 'Toggle', 2: 'Inc/Dec' },
   0x0C: { 0: 'Select in Set', 1: 'Toggle in Set', 2: 'Inc/Dec in Set' }

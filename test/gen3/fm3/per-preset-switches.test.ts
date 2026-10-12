@@ -450,9 +450,12 @@ export function runPerPresetSwitchTests(): void {
     eq(ppFunctionName(0x07, 0), 'Momentary', 'Control Switch names its two functions now');
     eq(ppFunctionName(0x07, 1), 'Latching', 'both of which hold a single "Control Switch" field');
     eq(ppFunctionName(0x07, 2), null, 'two entries only — CS 1 and CS 4 both reading index 0 is the SWITCH NUMBER at record+0, not a missing list');
-    eq(ppFunctionName(0x09, 0), null, 'Per-Preset stays unnamed: the read-out gave no ordered list');
-    eq(ppFunctionName(0x0D, 0), null, 'and Song Section stays unnamed for the same reason — "same as Song" does not name them');
-    eq(Object.keys(PP_FUNCTION_NAMES).length, 11, 'eleven of the thirteen categories carry a name list; 0x09 and 0x0D are the two whose lists were never read');
+    eq(ppFunctionName(0x09, 0), 'Placeholder', 'Per-Preset: the menu enters a Placeholder first…');
+    eq(ppFunctionName(0x09, 1), 'PP#1', '…then the per-preset switches themselves, so its index is a REFERENCE to a switch, not a mode');
+    eq(ppFunctionName(0x09, 24), 'PP#24', 'the twenty-fourth entry is the last — built from PP_SWITCH_COUNT so the two cannot drift');
+    eq(ppFunctionName(0x09, 25), null, 'and one past it names nothing');
+    eq(Object.keys(PP_FUNCTION_NAMES).length, 12, 'twelve of the thirteen categories carry a name list; 0x0D is the only one whose names were never read');
+    eq(ppFunctionName(0x0D, 0), null, 'Song Section stays unnamed: the read-out gave its FIELDS but not its three function names');
   });
 
   t('a HOLD-only patch is a patch, and an out-of-range HOLD code is refused', () => {
