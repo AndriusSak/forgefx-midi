@@ -21,7 +21,7 @@
  */
 import type { BuiltCacheData } from '../../src/cache/types.js';
 import { HW_SEEDS } from '../../src/cache/index.js';
-import { FM3_ENUM_OVERRIDES, FM3_RANGES, FM3_CAB_IRS, FM3_ROSTERS } from '../../src/gen3/fm3/index.js';
+import { FM3_ENUM_OVERRIDES, FM3_RANGES, FM3_RANGE_OVERLAY, FM3_CAB_IRS, FM3_ROSTERS } from '../../src/gen3/fm3/index.js';
 
 /** The subset of a built cache the oracle inspects (BuiltCache or BuiltCacheData both satisfy). */
 export type OracleInput = Pick<
@@ -96,13 +96,35 @@ export function assertFm3Equivalence(built: OracleInput): OracleMargins {
   }
 
   // ---- range oracle ---------------------------------------------------------
+  // The typecode-0x52 display-bounds overlay makes the SHIPPED table deliberately
+  // diverge from this device-walk fixture on exactly its 17 rows: the fixture
+  // carries the device's RAW definition record (WAH/3 min 2 max 20, FUZZ/6 min 1
+  // max 100, …) while the unit's own view-0x00 display string is linear 0..10
+  // (measured 2026-10-13; see src/gen3/fm3/rangeOverlay.ts for the evidence).
+  // Those rows are excluded from the agreement ratio and asserted SEPARATELY: an
+  // overlay row must be present in the built cache and must DIFFER from the
+  // shipped (corrected) row — a positive control that the fixture still holds the
+  // pre-correction record and that the correction is not a no-op.
+  const overlayKeys = new Set(FM3_RANGE_OVERLAY.map((e) => `${e.family}.${e.paramId}`));
   let rt = 0;
   let rok = 0;
+  let overlayChecked = 0;
   const rangeSamples: string[] = [];
   for (const [fam, m] of Object.entries(FM3_RANGES)) {
     for (const [pid, r] of Object.entries(m)) {
       const g = built.ranges[fam]?.[Number(pid)];
       if (g === undefined) continue;
+      if (overlayKeys.has(`${fam}.${pid}`)) {
+        if (g.kind === r.kind && close(g.displayMin, r.displayMin) && close(g.displayMax, r.displayMax)) {
+          fail(
+            `range oracle: overlay row ${fam}.${pid} still matches the built cache ` +
+              `(got{${g.displayMin},${g.displayMax}} want{${r.displayMin},${r.displayMax}}) — the ` +
+              `correction should have moved it off the fixture's raw record`,
+          );
+        }
+        overlayChecked += 1;
+        continue;
+      }
       rt += 1;
       if (g.kind === r.kind && close(g.displayMin, r.displayMin) && close(g.displayMax, r.displayMax)) {
         rok += 1;
@@ -113,6 +135,12 @@ export function assertFm3Equivalence(built: OracleInput): OracleMargins {
         );
       }
     }
+  }
+  if (overlayChecked !== overlayKeys.size) {
+    fail(
+      `range oracle: ${overlayChecked}/${overlayKeys.size} overlay rows present in the built cache — a ` +
+        `corrected row is missing from the walk fixture`,
+    );
   }
   const rangePct = rt === 0 ? 0 : (100 * rok) / rt;
   if (rok < rt * 0.995) {

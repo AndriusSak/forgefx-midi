@@ -7,12 +7,34 @@ export {
   type Fm3FamilyJoinProvenance,
 } from './discreteOverlay.js';
 export {
-  FM3_RANGES,
   FM3_RANGE_SECTIONS,
   FM3_UNMAPPED_SECTIONS,
   type Fm3ParamRange,
   type Fm3RangeFamilyMeta,
 } from './ranges.generated.js';
+// Display-bounds overlay for the typecode-0x52 class. The generated rows carry
+// measured-wrong bounds for those 17 rows (see rangeOverlay.ts for the evidence
+// and why the fix cannot ship as a generator edit). Merged ONCE, here, so every
+// consumer of FM3_RANGES — ForgeFX/server/src/devices.ts, Axis, the codec — sees
+// the corrected rows.
+import { FM3_RANGES as FM3_RANGES_GENERATED } from './ranges.generated.js';
+import { applyFm3RangeOverlay } from './rangeOverlay.js';
+export {
+  FM3_RANGE_OVERLAY,
+  applyFm3RangeOverlay,
+  overlayIsRedundant,
+  overlayFullyRedundant,
+  type Fm3RangeOverlayEntry,
+  type Fm3RangeTable,
+} from './rangeOverlay.js';
+
+/**
+ * The device-true FM3 display ranges, with the typecode-0x52 overlay applied.
+ * A fresh object built by a pure function — never a mutation of the generated
+ * table — so `ranges.generated.ts` stays untouched and the merge is a no-op
+ * where upstream is already correct.
+ */
+export const FM3_RANGES = applyFm3RangeOverlay(FM3_RANGES_GENERATED);
 export { FM3_ROSTERS, type Fm3TypeModel } from './rosters.generated.js';
 export { FM3_ENUM_OVERRIDES } from './enumOverrides.js';
 export { FM3_CAB_IRS } from './cabIrs.generated.js';
