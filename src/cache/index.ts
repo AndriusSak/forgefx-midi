@@ -14,6 +14,7 @@ export {
   liveSource,
   buildDefQuery,
   buildEnumQuery,
+  buildValueQuery,
   decodeReply,
   decodeSeptetStream,
   parseDisplayValue,

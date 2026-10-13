@@ -130,6 +130,22 @@ export function buildDefQuery(model: number, block: number, param: number): Uint
   return buildQuery(model, VIEW_DEFINITION, block, param, 0);
 }
 
+/**
+ * Build a FORMATTED-VALUE query (view 0x00) for (model, block, param).
+ *
+ * READ-ONLY: the same query the read-only walk already uses to read the device's own display string for
+ * a parameter ('5.00', '0.316', '36.5 %'). Exported so a probe can ask the INSTRUMENT what it shows —
+ * the only check that does not depend on our own range tables.
+ *
+ * MEASURED 2026-10-13: the owner read 5.00 off the unit for Cab Drive where our table decoded the same
+ * raw byte (32768, exactly mid-scale) to 0.316, because the row says `log` while the instrument's own
+ * numbers (0.00 at raw 0, 5.00 at mid) fit a linear 0→10 mapping. No oracle that shares those tables can
+ * see that error; only the unit's formatted string or the owner's eyes can.
+ */
+export function buildValueQuery(model: number, block: number, param: number): Uint8Array {
+  return buildQuery(model, VIEW_VALUE, block, param, 0);
+}
+
 /** Build an ENUM-LABEL query (view 0x1f) for (model, block, param, sub). */
 export function buildEnumQuery(model: number, block: number, param: number, sub: number): Uint8Array {
   return buildQuery(model, VIEW_ENUM_LABEL, block, param, sub);
