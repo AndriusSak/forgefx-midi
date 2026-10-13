@@ -46,7 +46,7 @@ import { assertFm3Equivalence } from './oracle.js';
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const FM3 = 0x11;
 
-export const LIVEWALK_CASE_COUNT = 16;
+export const LIVEWALK_CASE_COUNT = 18;
 
 // ===========================================================================
 // Test-only wire ENCODER (inverse of the liveWalk codec)
@@ -680,4 +680,83 @@ export async function runLiveWalk(): Promise<void> {
     if (got.unit !== 'Hz') fail(`Delay Low Cut record unit=${JSON.stringify(got.unit)} (interior-NUL value frame dropped the unit capture)`);
   }
   console.log('  cache/livewalk: real FM3 view-0x00 frames (incl. interior-NUL padding) decode and recover the unit');
+
+  // ---- Case 17: decodeReply gates the DEFINITION branch on the VIEW byte -----
+  // Review #11: the branch was keyed on `cnt === 36` + five finite floats ALONE.
+  // ASCII text always satisfies "finite float" (a byte ≤ 0x7E can never give an
+  // exponent of 0xFF), so ANY 36-byte text reply under ANY view came back as a
+  // bogus `definition`. The view echo is frame[6] (`selector`); the definition
+  // view is 0x1c.
+  {
+    // (a) a REAL definition frame (view 0x1c) must still decode as 'definition'.
+    const realDef = decodeReply(definitionReply(probe, probe.id));
+    if (!realDef || realDef.view !== 'definition') {
+      fail(`real view-0x1c definition frame decoded ${JSON.stringify(realDef)} (must be 'definition')`);
+    }
+    // (b) the SAME kind of 36-byte payload under a NON-definition view must NOT
+    // decode as a definition. 36 ASCII 'A' (0x41) bytes — every f32 field is
+    // finite (0x41414141 ≈ 12.078), which is exactly the misclassification.
+    const text36 = Uint8Array.from(Array.from({ length: 36 }, () => 0x41));
+    const underValue = decodeReply(replyFrame(VIEW_VALUE, 0, 0x3a, text36));
+    if (underValue && underValue.view === 'definition') {
+      fail('36-byte ASCII payload under view 0x00 mis-decoded as a definition (#11)');
+    }
+    const underLabel = decodeReply(replyFrame(VIEW_ENUM_LABEL, 0, 0x3a, text36));
+    if (underLabel && underLabel.view === 'definition') {
+      fail('36-byte ASCII payload under view 0x1f mis-decoded as a definition (#11)');
+    }
+  }
+  console.log('  cache/livewalk: decodeReply returns a definition ONLY under the view-0x1c echo (#11)');
+
+  // ---- Case 18: an interior-NUL 0x1f reply does NOT flip a float to an enum --
+  // Review #12 (unverified): after the interior-NUL decode fix, a speculative
+  // 0x1f probe of a float with integral bounds could decode a "printable prefix
+  // + NUL + junk" reply as a label, and buildRecord's `labels.length > 0` then
+  // flipped the FLOAT to an enum — so a re-walked cache would differ.
+  //
+  // Reachability: only a def `couldBeEnum` accepts is probed, which needs
+  // scale == 0 (a scale!=0 def is continuous-by-contract and never probed). A
+  // scale-0 float with integral bounds IS reachable: bounds 0..5 with a
+  // non-integral step 0.5 → classifyKind 'float'. That is the case below.
+  {
+    const bad = Uint8Array.from([0x41, 0x42, 0x00, 0x00, 0x80, 0xff, 0x7e]); // 'AB' + NUL + junk
+    const badFrame = replyFrame(VIEW_ENUM_LABEL, 0, 0x3a, bad);
+    if (decodeReply(badFrame) !== null) {
+      fail('interior-NUL 0x1f reply decoded as a label (flips a numeric float to enum — #12)');
+    }
+
+    const floatRec: CacheRecord = { kind: 'float', section: 94, offset: 0, id: 0, tc: 16, min: 0, max: 5, def: 0, step: 0.5, t1: 0, t2: 0 };
+    let labelQueries = 0;
+    const t: LiveTransport = {
+      request(q) {
+        const view = q[6]!;
+        const param = q[10]! | (q[11]! << 7);
+        const sub = q[12]! | (q[13]! << 7);
+        if (view === VIEW_ENUM_LABEL) {
+          labelQueries += 1;
+          if (sub === 0) return Promise.resolve(badFrame);
+          return Promise.resolve(endOfRangeFrame(VIEW_ENUM_LABEL, param));
+        }
+        if (view === VIEW_DEFINITION && param === 0) {
+          return Promise.resolve(replyFrame(VIEW_DEFINITION, 0, 0x3a, definitionBlockScaled(floatRec, 0)));
+        }
+        return Promise.resolve(sentinelFrame(view, param));
+      },
+    };
+    const recs = await liveWalk(t, { model: FM3, blocks: [94], maxParamId: 0 });
+    if (labelQueries === 0) fail('the float was never 0x1f-probed — the case does not exercise the decode path');
+    if (recs.length !== 1) fail(`interior-NUL float walk produced ${recs.length} records`);
+    if (recs[0]!.kind !== 'float') {
+      fail(`interior-NUL 0x1f reply reclassified the float as '${recs[0]!.kind}' (#12)`);
+    }
+
+    // POSITIVE CONTROL: a CLEAN trailing-NUL-padded label must still decode — the
+    // strict rule sweeps away junk, not genuine labels.
+    const clean = Uint8Array.from([0x55, 0x53, 0x41, 0x00, 0x00, 0x00]); // 'USA' + trailing NULs
+    const cd = decodeReply(replyFrame(VIEW_ENUM_LABEL, 0, 0x3a, clean));
+    if (!cd || cd.view !== 'enum_label' || cd.label !== 'USA') {
+      fail(`clean trailing-NUL label decoded ${JSON.stringify(cd)} (expected enum_label 'USA')`);
+    }
+  }
+  console.log('  cache/livewalk: an interior-NUL 0x1f reply is not a label — a numeric float stays a float (#12)');
 }

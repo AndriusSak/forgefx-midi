@@ -262,8 +262,17 @@ export function decodeReply(frame: Uint8Array): LiveReply {
   const raw = decodeSeptetStream(inner, cnt, 15);
   if (raw.length < cnt) return null;
 
-  // DEFINITION record: exactly 36 raw bytes with finite numeric fields.
-  if (cnt === 36 && raw.length === 36) {
+  // DEFINITION record: only under the DEFINITION view (0x1c), exactly 36 raw
+  // bytes with finite numeric fields.
+  //
+  // The view byte MUST be checked: any 36-byte payload whose five f32 fields
+  // are finite satisfies the shape test, and ASCII text always does (a top byte
+  // <= 0x7E can never give an exponent of 0xFF, so the floats are always
+  // finite). Without this the string/value branch is unreachable for a 36-byte
+  // text reply — it would be returned as a bogus `definition`. `selector` is the
+  // view echo (`frame[6]`), the same byte `adaptRequest` matches on. A reply
+  // that is NOT the definition view falls through to the string branch below.
+  if (selector === VIEW_DEFINITION && cnt === 36 && raw.length === 36) {
     const dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
     const id = dv.getUint32(0, true);
     const tc = dv.getUint32(4, true);
@@ -297,13 +306,34 @@ export function decodeReply(frame: Uint8Array): LiveReply {
   // the region the device packs ahead of further buffer content leaves INTERIOR
   // NUL padding (measured — the Delay Low Cut reply decodes to "20.0 Hz\0\0sec"),
   // and that padding byte then failed the printable check, so decodeReply
-  // returned null for a whole class of valid value/label replies. Ends at the
-  // first NUL instead: trailing-only padding (Cab Drive "5.00\0\0…") decodes
+  // returned null for a whole class of valid VALUE replies. Ends at the first
+  // NUL instead: trailing-only padding (Cab Drive "5.00\0\0…") decodes
   // identically, interior padding is skipped, and a payload whose leading byte
   // is a NUL or non-printable still falls through to null.
+  //
+  // The interior-NUL tolerance is scoped to the VALUE buffer (0x00): it packs
+  // SEVERAL NUL-separated fields, so bytes after the first NUL are structural.
+  // A LABEL buffer (0x1f) holds exactly ONE string, so any non-NUL content after
+  // the terminating NUL is NOT part of a label — it is junk (a different field
+  // crammed into the same fixed-width buffer, or a mis-targeted read). Accepting
+  // it did real damage: a speculative 0x1f probe of a numeric float that answers
+  // with "printable prefix + NUL + junk" (which used to reject) would decode to a
+  // label, and `buildRecord`'s `labels.length > 0` then flipped that FLOAT to an
+  // enum. A genuine label (including this walk's own encoder, and every clean
+  // trailing-NUL-padded FM3 label) has no non-NUL byte after the terminator, so
+  // the strict rule recovers every real label.
   let end = 0;
   while (end < raw.length && raw[end] !== 0x00) end += 1;
-  if (end > 0) {
+  let clean = end > 0;
+  if (clean && selector === VIEW_ENUM_LABEL) {
+    for (let i = end; i < raw.length; i++) {
+      if (raw[i] !== 0x00) {
+        clean = false;
+        break;
+      }
+    }
+  }
+  if (clean) {
     let printable = true;
     for (let i = 0; i < end; i++) {
       const c = raw[i]!;
