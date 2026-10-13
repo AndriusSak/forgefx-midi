@@ -22,18 +22,31 @@
 // driver's own pre-range READOUT (gen3.ts `#display` computes it BEFORE any range
 // lookup, so dividing by it does not inherit the range table's error).
 //
-// THE DECIDING FACT (taper-agnostic). Measured 2026-10-13 in ONE session for every
-// row of the class (artifact `review-2026-10-13/probe-52-class-sweep.json`,
-// instrument `ForgeFX/server/scripts/probe-52-crux.ts`):
+// WHAT THE ARTIFACT ACTUALLY SHOWS (taper-agnostic). Read 2026-10-13 in ONE session
+// (artifact `review-2026-10-13/probe-52-class-sweep.json`, instrument
+// `ForgeFX/server/scripts/probe-52-crux.ts`). `norm` is the driver's own
+// `clamp01(raw/65534)` READOUT, computed before any range lookup.
 //
-//   display = 10 × norm over 15 of the 17 rows, across 10 families, ratios
-//   9.991..10.01 (two decimals of device rounding).
-//   WAH/3 Resonance Q displays 6.06 at norm 0.6064 — BELOW our row's own MINIMUM
-//   of 20. FLANGER/26 Bass Focus displays 10.00 at norm 1.0 where our row's
-//   MAXIMUM is 20000. No monotone map onto our bounds can produce either.
-//   Five further rows read display 0.00 at raw 0 (REVERB/32, CHORUS/20,
-//   MULTITAP/65, ROTARY/17, CABINET/33), against our rows' minima of
-//   0.1 / 0.5 / 5 / 0.5 / 0.01.
+//   TWELVE of the 17 rows were read at a NON-ZERO norm, and there
+//   `display = ratio × norm` with ratio in 9.991..10.01 (two decimals of device
+//   rounding) — e.g. WAH/10 Drive 4.62 @ 0.4621, DISTORT/90 5.00 @ 0.5,
+//   DELAY/58 1.99 @ 0.1990. WAH/3 Resonance Q reads 6.06 @ 0.6064, BELOW our
+//   row's own MINIMUM of 20; no monotone map onto our bounds can produce that.
+//   THE OTHER FIVE rows were read ONLY at raw 0, where every one displays
+//   `0.00`: REVERB/32, CHORUS/20, MULTITAP/65, ROTARY/17, CABINET/33 (against
+//   our rows' minima of 0.1 / 0.5 / 5 / 0.5 / 0.01).
+//
+//   MEASURED vs INFERRED (do not overstate):
+//   - raw 0 ⇒ `display 0.00` proves **min = 0** for the five rows above — it
+//     proves NOTHING about the max.
+//   - max = 10 is directly MEASURED for **FLANGER/26 only** (owner drove the
+//     knob to MAXIMUM: display 10.00 @ norm 1.0; it also reads 0.00 @ raw 0 in
+//     the earlier `probe-52-crux.json`, so it is the ONLY row read at BOTH
+//     endpoints). For every other row, max = 10 is INFERRED from class
+//     membership — the ratio ≈ 10 at one non-zero norm, extended to norm 1.
+//   - **MULTITAP/65 (Multitap Drive, old 5..5000) and ROTARY/17 (Rotary Drive,
+//     old 0.5..500) were read ONLY at raw 0**: their max of 10 is UNMEASURED and
+//     inferred purely from the class.
 //
 // So the correct bounds are `displayMin 0, displayMax 10`, linear. This is the
 // same shape the device's own records already give for the rows that display
@@ -112,11 +125,13 @@ export const FM3_RANGE_OVERLAY: readonly Fm3RangeOverlayEntry[] = [
   // REVERB/67 TONETYPE: unit "1" at raw 1 (norm 1.5259e-05) [we served 0]; 2026-10-13
   { family: 'REVERB', paramId: 67, displayMin: 0, displayMax: 3, valueMap: 'identity' },
   // ── typecode-0x52 class: bounds → 0..10 ───────────────────────────────────────────────────────────
-  // CABINET/33 CABINET_DRIVE: unit 0.00 at raw 0 (norm 0) [our row's floor was 0.01, i.e. above the device's]; 2026-10-13
+  // CABINET/33 CABINET_DRIVE: unit 0.00 at raw 0 (norm 0) [our row's floor was 0.01, i.e. above the device's].
+  // Read only at raw 0 — min MEASURED, max 10 inferred; 2026-10-13
   { family: 'CABINET', paramId: 33, displayMin: 0, displayMax: 10 },
-  // CHORUS/20 CHORUS_DRIVE: unit 0.00 at raw 0 (norm 0) [our min was 0.5]; 2026-10-13
+  // CHORUS/20 CHORUS_DRIVE: unit 0.00 at raw 0 (norm 0) [our min was 0.5]. Read only at raw 0 — min MEASURED,
+  // max 10 inferred; 2026-10-13
   { family: 'CHORUS', paramId: 20, displayMin: 0, displayMax: 10 },
-  // DELAY/22 DELAY_DRIVE: unit 3.71 at norm 0.3713 (10.07×norm) [our row served 185.974]; 2026-10-13
+  // DELAY/22 DELAY_DRIVE: unit 3.71 at norm 0.3713 (9.991×norm) [our row served 185.974]; 2026-10-13
   { family: 'DELAY', paramId: 22, displayMin: 0, displayMax: 10 },
   // DELAY/58 DELAY_Q (Resonance): unit 1.99 at norm 0.1990 (10.00×norm) [our row served 41.395]; 2026-10-13
   { family: 'DELAY', paramId: 58, displayMin: 0, displayMax: 10 },
@@ -130,17 +145,22 @@ export const FM3_RANGE_OVERLAY: readonly Fm3RangeOverlayEntry[] = [
   { family: 'FILTER', paramId: 28, displayMin: 0, displayMax: 10 },
   // FLANGER/20 OLD_FLANGER_DRIVE: unit 4.00 at norm 0.4004 (9.99×norm) [our row served 20.049]; 2026-10-13
   { family: 'FLANGER', paramId: 20, displayMin: 0, displayMax: 10 },
-  // FLANGER/26 FLANGER_FOCUS (Bass Focus): unit 10.00 at norm 1.0 (owner drove the knob to MAXIMUM to settle it) [our max was 20000]; 2026-10-13
+  // FLANGER/26 FLANGER_FOCUS (Bass Focus): the ONE row measured at BOTH endpoints — unit 0.00 at raw 0
+  // (probe-52-crux.json) and 10.00 at norm 1.0 (owner drove the knob to MAXIMUM to settle it)
+  // [our max was 20000]; 2026-10-13
   { family: 'FLANGER', paramId: 26, displayMin: 0, displayMax: 10 },
   // FORMANT/3 FORMANT_Q: unit 3.01 at norm 0.3010 (10.00×norm) [our row served 148.372]; 2026-10-13
   { family: 'FORMANT', paramId: 3, displayMin: 0, displayMax: 10 },
   // FUZZ/6 FUZZ_SLEW (Slew Rate): unit 6.15 at norm 0.6152 (10.00×norm) [our row served 61.907]; 2026-10-13
   { family: 'FUZZ', paramId: 6, displayMin: 0, displayMax: 10 },
-  // MULTITAP/65 MULTITAP_DRIVE: unit 0.00 at raw 0 (norm 0) [our min was 5]; 2026-10-13
+  // MULTITAP/65 MULTITAP_DRIVE (Multitap Drive): unit 0.00 at raw 0 (norm 0) [our row was 5..5000]. Read ONLY
+  // at raw 0 — min 0 MEASURED, max 10 UNMEASURED (INFERRED from class membership); 2026-10-13
   { family: 'MULTITAP', paramId: 65, displayMin: 0, displayMax: 10 },
-  // REVERB/32 REVERB_DRIVE: unit 0.00 at raw 0 (norm 0) [our min was 0.1]; 2026-10-13
+  // REVERB/32 REVERB_DRIVE: unit 0.00 at raw 0 (norm 0) [our min was 0.1]. Read only at raw 0 — min MEASURED,
+  // max 10 inferred; 2026-10-13
   { family: 'REVERB', paramId: 32, displayMin: 0, displayMax: 10 },
-  // ROTARY/17 ROTARY_DRIVE: unit 0.00 at raw 0 (norm 0) [our min was 0.5]; 2026-10-13
+  // ROTARY/17 ROTARY_DRIVE (Rotary Drive): unit 0.00 at raw 0 (norm 0) [our row was 0.5..500]. Read ONLY at
+  // raw 0 — min 0 MEASURED, max 10 UNMEASURED (INFERRED from class membership); 2026-10-13
   { family: 'ROTARY', paramId: 17, displayMin: 0, displayMax: 10 },
   // WAH/3 WAH_Q (Resonance Q): unit 6.06 at norm 0.6064 (9.99×norm) — BELOW our row's own minimum of 20 [our row served 129.15]; 2026-10-13
   { family: 'WAH', paramId: 3, displayMin: 0, displayMax: 10 },

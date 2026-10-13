@@ -41,7 +41,14 @@ import type { Param as Gen3Param } from '../gen3/types.js';
 import { PARAMS_BY_FAMILY as AXE3_PARAMS_BY_FAMILY } from '../gen3/axe-fx-iii/params.js';
 import { AXE3_RANGES } from '../gen3/axe-fx-iii/ranges.generated.js';
 import { FM3_PARAMS_BY_FAMILY } from '../gen3/fm3/params.js';
-import { FM3_RANGES } from '../gen3/fm3/ranges.generated.js';
+// FM3 ranges are imported from the fm3 INDEX, NOT from `ranges.generated.js` directly. The index is the
+// ONE place `FM3_RANGE_OVERLAY` is merged — the typecode-0x52 display-bounds correction (17 rows → 0..10)
+// and the four `valueMap:'identity'` rows — and it is the very `FM3_RANGES` the live server imports
+// (`forgefx-midi/gen3/fm3`, see ForgeFX/server/src/devices.ts). Importing the generated file here
+// BYPASSED the overlay, so the converter clamped to and normalized over the OLD bounds: an incoming Wah Q
+// of 6 clamped to the old `min 20` and normalized to 0. Consuming the index export is the single
+// corrected source, so this path cannot drift from the server's again.
+import { FM3_RANGES } from '../gen3/fm3/index.js';
 import { FM9_PARAMS_BY_FAMILY } from '../gen3/fm9/params.js';
 import { FM9_RANGES } from '../gen3/fm9/ranges.generated.js';
 import { VP4_PARAMS_BY_FAMILY } from '../gen3/vp4/params.js';
@@ -249,7 +256,10 @@ interface Gen3Hit {
  * gen-3 taper decision, MIRRORING the live server (`ForgeFX/server/src/
  * drivers/gen3.ts` `#display`): a device-true explicit `range.taper` wins
  * ('log' → log10; 'linear' | 'flat' | 'custom' → linear), otherwise fall back
- * to the typecode-nibble heuristic `(typecode >> 4) & 0xf ∈ {4,5}` ⇒ log10.
+ * to the typecode-nibble heuristic — and that heuristic counts ONLY nibble 4:
+ * `(typecode >> 4) & 0xf === 4` ⇒ log10. Nibble 5 is a MEASURED FALSE POSITIVE
+ * for the heuristic (the typecode-0x52 class reads linear 0..10 on the unit),
+ * so it must NOT imply log — the same restriction the live server applies.
  * A log sweep requires a positive `displayMin` (the live `wireToDisplay` throws
  * on log10 with a non-positive min) — the same guard the live nibble branch
  * uses. Without a range row the taper is unknown → linear (matches the live
@@ -260,7 +270,7 @@ function gen3TaperIsLog(range: Gen3RangeRow | undefined): boolean {
   if (range === undefined || !(range.displayMin > 0)) return false;
   if (range.taper !== undefined) return range.taper === 'log';
   const nib = ((range.typecode ?? 0) >> 4) & 0xf;
-  return nib === 4 || nib === 5;
+  return nib === 4;
 }
 
 function gen3Hit(

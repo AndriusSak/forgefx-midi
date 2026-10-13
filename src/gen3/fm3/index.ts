@@ -14,8 +14,17 @@ export {
 // Display-bounds overlay for the typecode-0x52 class. The generated rows carry
 // measured-wrong bounds for those 17 rows (see rangeOverlay.ts for the evidence
 // and why the fix cannot ship as a generator edit). Merged ONCE, here, so every
-// consumer of FM3_RANGES — ForgeFX/server/src/devices.ts, Axis, the codec — sees
-// the corrected rows.
+// consumer that imports `FM3_RANGES` from THIS module — the server
+// (ForgeFX/server/src/devices.ts imports it from `forgefx-midi/gen3/fm3`), Axis,
+// the codec, and the IR converter (src/convert/targetRanges.ts) — sees the
+// corrected rows.
+//
+// FIXED CLAIM (2026-10-13): "every consumer sees the corrected rows" was FALSE
+// while src/convert/targetRanges.ts imported `FM3_RANGES` straight from
+// `./ranges.generated.js`, which BYPASSES this merge. That import is now this
+// index's export, so the corrected table is the only one the converter can see.
+// The invariant to preserve: import `FM3_RANGES` from here, never from
+// `ranges.generated.js` — the generated file is the PRE-overlay table.
 import { FM3_RANGES as FM3_RANGES_GENERATED } from './ranges.generated.js';
 import { applyFm3RangeOverlay } from './rangeOverlay.js';
 export {
