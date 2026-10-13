@@ -6,11 +6,27 @@ export {
   FM3_FAMILY_JOIN_PROVENANCE,
   type Fm3FamilyJoinProvenance,
 } from './discreteOverlay.js';
+// fn=0x1F channel-block WIRE STRIDE overlay: three generated families (FUZZ, CHORUS, DELAY) declare a
+// stride that does not describe the body the device sends, which shifts every channel but A when a
+// consumer slices a bulk read by it. Corrected with the device's own itemCount + marker-write evidence
+// (see sectionStrideOverlay.ts), merged ONCE here so every consumer of `FM3_RANGE_SECTIONS` from THIS
+// module — the server's `#channelSlice` is the one that matters today — sees the corrected rows.
+// The invariant mirrors FM3_RANGES: import `FM3_RANGE_SECTIONS` from here, never from
+// `ranges.generated.js`; the generated file is the PRE-overlay table.
+export { FM3_UNMAPPED_SECTIONS, type Fm3RangeFamilyMeta } from './ranges.generated.js';
+import { FM3_RANGE_SECTIONS as FM3_RANGE_SECTIONS_GENERATED } from './ranges.generated.js';
+import { applyFm3SectionStrideOverlay } from './sectionStrideOverlay.js';
 export {
-  FM3_RANGE_SECTIONS,
-  FM3_UNMAPPED_SECTIONS,
-  type Fm3RangeFamilyMeta,
-} from './ranges.generated.js';
+  FM3_SECTION_STRIDE_OVERLAY,
+  applyFm3SectionStrideOverlay,
+  sectionStrideEntryIsRedundant,
+  sectionStrideOverlayFullyRedundant,
+  type Fm3SectionStrideOverlayEntry,
+  type Fm3SectionTable,
+} from './sectionStrideOverlay.js';
+
+/** The device-true FM3 fn=0x1F channel-block strides, with the measured overlay applied. */
+export const FM3_RANGE_SECTIONS = applyFm3SectionStrideOverlay(FM3_RANGE_SECTIONS_GENERATED);
 // Display-bounds overlay for the typecode-0x52 class. The generated rows carry
 // measured-wrong bounds for those 17 rows (see rangeOverlay.ts for the evidence
 // and why the fix cannot ship as a generator edit). Merged ONCE, here, so every
