@@ -1,4 +1,5 @@
-// FM3 display-bounds overlay for the typecode-0x52 range class (17 rows).
+// FM3 range overlay: the typecode-0x52 display-bounds class (17 rows) AND the raw-is-value rows (4 rows,
+// `valueMap: 'identity'`, see the head of FM3_RANGE_OVERLAY).
 //
 // WHY AN OVERLAY AND NOT A GENERATOR EDIT
 // ---------------------------------------
@@ -51,7 +52,19 @@
 // device's own raw bytes, same session), 2026-10-13.
 /* eslint-disable */
 
-import type { Fm3ParamRange } from './ranges.generated.js';
+import type { Fm3ParamRange as GeneratedFm3ParamRange } from './ranges.generated.js';
+
+/**
+ * How a float row's 14-bit raw field maps to its display value.
+ *   'normalized' (default, absent) — a position over [displayMin, displayMax] (linear or log per `taper`).
+ *   'identity' — the field carries the VALUE ITSELF (display == raw); the bounds are only the write range.
+ * The generated interface cannot carry this (the generator is not in this repo), so the field is added
+ * here, on the type every consumer imports from the fm3 index.
+ */
+export type Fm3ValueMap = 'normalized' | 'identity';
+
+/** The generated row shape plus the overlay-supplied `valueMap`. A pure superset: every generated row is one. */
+export type Fm3ParamRange = GeneratedFm3ParamRange & { readonly valueMap?: Fm3ValueMap };
 
 /** One row correction: the (family, paramId) it fixes and its corrected bounds. */
 export interface Fm3RangeOverlayEntry {
@@ -63,13 +76,15 @@ export interface Fm3RangeOverlayEntry {
   readonly displayMin: number;
   /** Corrected display maximum (device-true, front-panel units). */
   readonly displayMax: number;
+  /** Set to 'identity' for a row whose raw field IS the value (see {@link Fm3ValueMap}); absent = unchanged. */
+  readonly valueMap?: Fm3ValueMap;
 }
 
 /** Family -> paramId -> range row, the shape of `FM3_RANGES`. */
 export type Fm3RangeTable = Readonly<Record<string, Readonly<Record<number, Fm3ParamRange>>>>;
 
 /**
- * The 17 typecode-0x52 rows whose generated display bounds are wrong. Each entry
+ * The 17 typecode-0x52 rows whose generated display bounds are wrong, plus the 4 raw-is-value rows. Each entry
  * carries its own measured evidence: the (unit view-0x00 display, driver norm)
  * pair read in one session on 2026-10-13, and what our generated row served at
  * that norm (`served`, the count the overlay is replacing).
@@ -79,6 +94,24 @@ export type Fm3RangeTable = Readonly<Record<string, Readonly<Record<number, Fm3P
  * statement, not a restatement of the table it corrects.
  */
 export const FM3_RANGE_OVERLAY: readonly Fm3RangeOverlayEntry[] = [
+  // ── raw-is-value rows (valueMap 'identity') — the 14-bit field carries the VALUE, not a position ─────
+  // Measured 2026-10-13 (`review-2026-10-13/probe-bounds-violations.json`, ForgeFX/server/scripts/
+  // probe-bounds-violations.ts): unit view-0x00 display ÷ driver norm = 65530 for all four, i.e. display
+  // == raw, and the raw is inside the declared range. The bounds stay the DECLARED range (they clamp a
+  // write); only the read/write mapping changes. Decision per row: all four are served as a NUMBER, not
+  // an enum — Tempo is continuous, and for Stages/Bank Size the "labels" would be the integers
+  // themselves; TONETYPE is discrete but NO label list exists anywhere in the repo (no AM4 enum, no
+  // cache label table, no editor layout) and a bare ordinal shown as a number is the honest best until
+  // the unit's labels are measured.
+  // CONTROLLERS/32 Tempo: unit "120 BPM" at raw 120 (norm 0.0018311) [we served 24.414]; 2026-10-13
+  { family: 'CONTROLLERS', paramId: 32, displayMin: 24, displayMax: 250, valueMap: 'identity' },
+  // CONTROLLERS/36 SEQSTAGES (Stages): unit "8" at raw 8 (norm 0.00012207) [we served 2.004]; 2026-10-13
+  { family: 'CONTROLLERS', paramId: 36, displayMin: 2, displayMax: 32, valueMap: 'identity' },
+  // GLOBAL/67 FC_BANKSIZE (Bank Size): unit "3" at raw 3 (norm 4.5778e-05) [we served 1.001]; 2026-10-13
+  { family: 'GLOBAL', paramId: 67, displayMin: 1, displayMax: 12, valueMap: 'identity' },
+  // REVERB/67 TONETYPE: unit "1" at raw 1 (norm 1.5259e-05) [we served 0]; 2026-10-13
+  { family: 'REVERB', paramId: 67, displayMin: 0, displayMax: 3, valueMap: 'identity' },
+  // ── typecode-0x52 class: bounds → 0..10 ───────────────────────────────────────────────────────────
   // CABINET/33 CABINET_DRIVE: unit 0.00 at raw 0 (norm 0) [our row's floor was 0.01, i.e. above the device's]; 2026-10-13
   { family: 'CABINET', paramId: 33, displayMin: 0, displayMax: 10 },
   // CHORUS/20 CHORUS_DRIVE: unit 0.00 at raw 0 (norm 0) [our min was 0.5]; 2026-10-13
@@ -132,7 +165,12 @@ export function applyFm3RangeOverlay(base: Fm3RangeTable): Fm3RangeTable {
     if (!rows) continue;
     const row = rows[entry.paramId];
     if (!row) continue;
-    rows[entry.paramId] = { ...row, displayMin: entry.displayMin, displayMax: entry.displayMax };
+    rows[entry.paramId] = {
+      ...row,
+      displayMin: entry.displayMin,
+      displayMax: entry.displayMax,
+      ...(entry.valueMap ? { valueMap: entry.valueMap } : {}),
+    };
   }
   return out;
 }
@@ -148,7 +186,8 @@ export function overlayIsRedundant(
   return (
     base !== undefined &&
     base.displayMin === entry.displayMin &&
-    base.displayMax === entry.displayMax
+    base.displayMax === entry.displayMax &&
+    (entry.valueMap === undefined || base.valueMap === entry.valueMap)
   );
 }
 

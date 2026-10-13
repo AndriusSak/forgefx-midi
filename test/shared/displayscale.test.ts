@@ -77,6 +77,26 @@ cases.push(() => {
   assert(withinDisplayQuantum(2000, 2000, FREQ), 'equal log10 values must be within quantum');
 });
 
+// Case 6: 'identity' — the raw field IS the value. Read: display == raw, unclamped, at the field's own
+// boundaries (0 and 65534). Write (inverse): clamp into the declared range, round to an integer.
+// Anchors are the unit's own readouts (2026-10-13): Tempo 120 BPM at raw 120, Stages 8 at raw 8.
+cases.push(() => {
+  const TEMPO = { displayMin: 24, displayMax: 250, displayScale: 'identity' as const };
+  assert(wireToDisplay(120, TEMPO) === 120, 'identity: raw 120 must read 120 BPM (the unit shows 120)');
+  assert(wireToDisplay(0, TEMPO) === 0, 'identity: raw 0 reads 0 (the read is not clamped into the declared range)');
+  assert(wireToDisplay(65534, TEMPO) === 65534, 'identity: raw 65534 reads 65534 (no normalisation)');
+  assert(displayToWire(120, TEMPO) === 120, 'identity inverse: 120 BPM must write raw 120');
+  assert(displayToWire(120.6, TEMPO) === 121, 'identity inverse: rounds to the integer the field holds');
+  assert(displayToWire(10, TEMPO) === 24, 'identity inverse: below the declared min clamps to 24');
+  assert(displayToWire(9999, TEMPO) === 250, 'identity inverse: above the declared max clamps to 250');
+  const STAGES = { displayMin: 2, displayMax: 32, displayScale: 'identity' as const };
+  assert(wireToDisplay(8, STAGES) === 8, 'identity: raw 8 must read 8 stages');
+  assert(displayToWire(wireToDisplay(8, STAGES), STAGES) === 8, 'identity round-trips an in-range raw');
+  // The same raw under the DEFAULT (normalised) mode is the defect: 24.414, not 120.
+  assert(Math.abs(wireToDisplay(120, { displayMin: 24, displayMax: 250 }) - 24.414) < 1e-3, 'normalised mode keeps its own result');
+  assert(displayQuantum(TEMPO, 120) === 1, 'identity quantum is one raw step');
+});
+
 export const SHARED_DISPLAYSCALE_CASE_COUNT = cases.length;
 
 export function runSharedDisplayScaleTests(): void {

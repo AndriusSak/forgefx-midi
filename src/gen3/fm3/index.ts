@@ -9,7 +9,6 @@ export {
 export {
   FM3_RANGE_SECTIONS,
   FM3_UNMAPPED_SECTIONS,
-  type Fm3ParamRange,
   type Fm3RangeFamilyMeta,
 } from './ranges.generated.js';
 // Display-bounds overlay for the typecode-0x52 class. The generated rows carry
@@ -25,6 +24,8 @@ export {
   overlayIsRedundant,
   overlayFullyRedundant,
   type Fm3RangeOverlayEntry,
+  type Fm3ParamRange,
+  type Fm3ValueMap,
   type Fm3RangeTable,
 } from './rangeOverlay.js';
 

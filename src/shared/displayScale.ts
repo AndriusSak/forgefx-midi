@@ -34,11 +34,20 @@
  * AND displayMax. For uncalibrated params, the tool layer falls back
  * to the wire-value path.
  *
+ * **`'identity'`** — the 14-bit field carries the VALUE ITSELF, not a position:
+ * `display = wire`, the inverse is `wire = round(clamp(display, displayMin,
+ * displayMax))`. Measured on the FM3 (2026-10-13): CONTROLLERS Tempo shows
+ * 120 BPM at raw 120, Stages 8 at raw 8, GLOBAL Bank Size 3 at raw 3, REVERB
+ * TONETYPE 1 at raw 1 — `unit display / (raw/65534) = 65530` for all four,
+ * i.e. display == raw. `displayMin`/`displayMax` are the declared RANGE (used
+ * only to clamp a write); they play no part in the read mapping, so a raw read
+ * is returned as-is, never clamped, and `wire` 0 / 65534 map to 0 / 65534.
+ *
  * Clamps to [displayMin, displayMax] silently — the wire value pins to
  * [0, 65534] either way, so an out-of-range display value rounds to
  * the same endpoint. The tool layer surfaces a clamp note when needed.
  */
-export type DisplayScale = 'linear' | 'log10';
+export type DisplayScale = 'linear' | 'log10' | 'identity';
 
 export interface DisplayToWireOptions {
     readonly displayMin: number;
@@ -62,6 +71,13 @@ export function displayToWire(display: number, opts: DisplayToWireOptions): numb
         const clamped = Math.min(displayMax, Math.max(displayMin, display));
         const ratio = Math.log10(clamped / displayMin) / Math.log10(displayMax / displayMin);
         return Math.round(ratio * 65534);
+    }
+
+    if (displayScale === 'identity') {
+        // The field IS the value: clamp into the declared range, round to the
+        // integer the 14-bit field can hold, and cap at the field's own ceiling.
+        const clamped = Math.min(displayMax, Math.max(displayMin, display));
+        return Math.min(65534, Math.max(0, Math.round(clamped)));
     }
 
     // linear (default)
@@ -89,6 +105,8 @@ export function wireToDisplay(wire: number, opts: DisplayToWireOptions): number 
         }
         return displayMin * Math.pow(displayMax / displayMin, wire / 65534);
     }
+
+    if (displayScale === 'identity') return wire;
 
     return displayMin + (wire / 65534) * (displayMax - displayMin);
 }

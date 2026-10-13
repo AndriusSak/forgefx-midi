@@ -16499,7 +16499,8 @@
           "scale": 1,
           "step": 0,
           "typecode": 2848,
-          "defaultRaw": 27837
+          "defaultRaw": 27837,
+          "valueMap": "identity"
         },
         "33": {
           "kind": "enum",
@@ -16537,7 +16538,8 @@
           "scale": 1,
           "step": 0,
           "typecode": 16,
-          "defaultRaw": 13107
+          "defaultRaw": 13107,
+          "valueMap": "identity"
         },
         "37": {
           "kind": "enum",
@@ -21695,7 +21697,8 @@
           "scale": 1,
           "step": 1,
           "typecode": 16,
-          "defaultRaw": 11915
+          "defaultRaw": 11915,
+          "valueMap": "identity"
         },
         "68": {
           "kind": "enum",
@@ -29468,7 +29471,8 @@
           "scale": 1,
           "step": 0,
           "typecode": 16,
-          "defaultRaw": 21845
+          "defaultRaw": 21845,
+          "valueMap": "identity"
         },
         "68": {
           "kind": "enum",

@@ -105,7 +105,11 @@ export function assertFm3Equivalence(built: OracleInput): OracleMargins {
   // overlay row must be present in the built cache and must DIFFER from the
   // shipped (corrected) row — a positive control that the fixture still holds the
   // pre-correction record and that the correction is not a no-op.
+  // The 4 raw-is-value rows (`valueMap: 'identity'`) are the exception in the other direction: their
+  // BOUNDS are unchanged (the declared range is right; only the read mapping was wrong), so they must
+  // AGREE with the fixture on bounds and differ only by the added `valueMap`.
   const overlayKeys = new Set(FM3_RANGE_OVERLAY.map((e) => `${e.family}.${e.paramId}`));
+  const identityKeys = new Set(FM3_RANGE_OVERLAY.filter((e) => e.valueMap === 'identity').map((e) => `${e.family}.${e.paramId}`));
   let rt = 0;
   let rok = 0;
   let overlayChecked = 0;
@@ -114,6 +118,13 @@ export function assertFm3Equivalence(built: OracleInput): OracleMargins {
     for (const [pid, r] of Object.entries(m)) {
       const g = built.ranges[fam]?.[Number(pid)];
       if (g === undefined) continue;
+      if (identityKeys.has(`${fam}.${pid}`)) {
+        if (!(g.kind === r.kind && close(g.displayMin, r.displayMin) && close(g.displayMax, r.displayMax)) || r.valueMap !== 'identity') {
+          fail(`range oracle: identity row ${fam}.${pid} must keep the fixture's bounds and carry valueMap 'identity'`);
+        }
+        overlayChecked += 1;
+        continue;
+      }
       if (overlayKeys.has(`${fam}.${pid}`)) {
         if (g.kind === r.kind && close(g.displayMin, r.displayMin) && close(g.displayMax, r.displayMax)) {
           fail(

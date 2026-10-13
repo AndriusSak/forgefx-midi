@@ -27,7 +27,7 @@ import {
   type Fm3ParamRange,
 } from '../../../src/gen3/fm3/index.js';
 import { FM3_RANGES as FM3_RANGES_GENERATED } from '../../../src/gen3/fm3/ranges.generated.js';
-import { wireToDisplay } from '../../../src/shared/index.js';
+import { wireToDisplay, displayToWire } from '../../../src/shared/index.js';
 
 type Table = Readonly<Record<string, Readonly<Record<number, Fm3ParamRange>>>>;
 
@@ -57,9 +57,10 @@ const cases: Array<{ name: string; run: () => void }> = [];
 
 // (a) difference shape is exactly the overlay's set.
 cases.push({
-  name: 'merged-vs-generated difference set is exactly the 17 overlay rows',
+  name: 'merged-vs-generated difference set is exactly the overlay rows (17 bounds + 4 raw-is-value)',
   run: () => {
     const expected = FM3_RANGE_OVERLAY.map((e) => `${e.family}/${e.paramId}`).sort();
+    assert(expected.length === 21, `overlay must carry 17 bounds rows + 4 raw-is-value rows, has ${expected.length}`);
     const actual = differingRows(FM3_RANGES, FM3_RANGES_GENERATED);
     assert(
       actual.length === expected.length && actual.every((k, i) => k === expected[i]),
@@ -67,7 +68,7 @@ cases.push({
         `[${expected.join(', ')}]`,
     );
     // Every corrected row reads 0..10 — and the generated one did not.
-    for (const entry of FM3_RANGE_OVERLAY) {
+    for (const entry of FM3_RANGE_OVERLAY.filter((e) => !e.valueMap)) {
       const merged = FM3_RANGES[entry.family]?.[entry.paramId];
       assert(merged !== undefined, `${entry.family}/${entry.paramId}: missing from merged table`);
       assert(
@@ -94,7 +95,7 @@ cases.push({
       }
     }
     derived.sort();
-    const overlayKeys = FM3_RANGE_OVERLAY.map((e) => `${e.family}/${e.paramId}`).sort();
+    const overlayKeys = FM3_RANGE_OVERLAY.filter((e) => !e.valueMap).map((e) => `${e.family}/${e.paramId}`).sort();
     assert(
       derived.length === overlayKeys.length && derived.every((k, i) => k === overlayKeys[i]),
       `derived typecode-0x52/no-taper class [${derived.join(', ')}] != overlay keys ` +
@@ -157,6 +158,48 @@ cases.push({
       overlayFullyRedundant(FM3_RANGES_GENERATED) === false,
       'the generated table does not satisfy the overlay — must NOT be fully redundant',
     );
+  },
+});
+
+// (e) the four raw-is-value rows: marked 'identity', bounds UNCHANGED, each reproduces the unit's readout.
+// Evidence (2026-10-13, probe-bounds-violations.json).
+const RAW_VALUE_ROWS: Array<[string, number, number, number, number, number]> = [
+  // family, pid, raw, unit display, declared min, declared max
+  ['CONTROLLERS', 32, 120, 120, 24, 250],
+  ['CONTROLLERS', 36, 8, 8, 2, 32],
+  ['GLOBAL', 67, 3, 3, 1, 12],
+  ['REVERB', 67, 1, 1, 0, 3],
+];
+cases.push({
+  name: 'the four raw-is-value rows are identity-mapped, keep their declared bounds, and read the unit values',
+  run: () => {
+    const marked = FM3_RANGE_OVERLAY.filter((e) => e.valueMap === 'identity')
+      .map((e) => `${e.family}/${e.paramId}`).sort();
+    const want = RAW_VALUE_ROWS.map(([f, p]) => `${f}/${p}`).sort();
+    assert(JSON.stringify(marked) === JSON.stringify(want), `identity-marked rows [${marked}] != measured [${want}]`);
+    // And NO other merged row carries a valueMap.
+    for (const [family, rows] of Object.entries(FM3_RANGES)) {
+      for (const [pid, r] of Object.entries(rows)) {
+        if (r.valueMap && !want.includes(`${family}/${pid}`)) throw new Error(`unmeasured row ${family}/${pid} carries valueMap`);
+      }
+    }
+    for (const [family, pid, raw, display, min, max] of RAW_VALUE_ROWS) {
+      const row = FM3_RANGES[family]?.[pid];
+      assert(row !== undefined && row.valueMap === 'identity', `${family}/${pid}: merged row must be identity`);
+      assert(row!.displayMin === min && row!.displayMax === max, `${family}/${pid}: declared bounds must be unchanged`);
+      const gen = FM3_RANGES_GENERATED[family]?.[pid] as Fm3ParamRange;
+      assert(gen.valueMap === undefined && gen.displayMin === min && gen.displayMax === max, `${family}/${pid}: generated row untouched`);
+      const opts = { displayMin: row!.displayMin, displayMax: row!.displayMax, displayScale: 'identity' as const };
+      assert(wireToDisplay(raw, opts) === display, `${family}/${pid}: raw ${raw} must read the unit's ${display}`);
+      assert(displayToWire(display, opts) === raw, `${family}/${pid}: ${display} must write back raw ${raw}`);
+      // The defect, pinned: the normalised reading of that raw is NOT the unit's number.
+      const old = wireToDisplay(raw, { displayMin: min, displayMax: max });
+      assert(Math.abs(old - display) > 0.5, `${family}/${pid}: normalised reading ${old} unexpectedly equals the unit's ${display}`);
+    }
+    // redundancy predicate sees valueMap: a base lacking it is NOT redundant for an identity entry.
+    const e = FM3_RANGE_OVERLAY.find((x) => x.family === 'CONTROLLERS' && x.paramId === 32)!;
+    assert(!overlayIsRedundant(e, FM3_RANGES_GENERATED.CONTROLLERS?.[32]), 'generated Tempo (no valueMap) must not be redundant');
+    assert(overlayIsRedundant(e, FM3_RANGES.CONTROLLERS?.[32]), 'merged Tempo must be redundant');
   },
 });
 
