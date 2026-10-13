@@ -203,6 +203,43 @@ cases.push({
   },
 });
 
+// (f) the write-validation marker: the four identity rows' READS are all measured, but only Tempo's WRITE
+// was exercised on the unit — so exactly one carries `writeValidated`, and the other three must NOT read as
+// validated. This keeps "we measured the read" from being mistaken for "we validated the write".
+cases.push({
+  name: 'only Tempo is writeValidated; the other three identity rows are NOT marked validated',
+  run: () => {
+    const identity = FM3_RANGE_OVERLAY.filter((e) => e.valueMap === 'identity').map((e) => `${e.family}/${e.paramId}`);
+    assert(identity.length === 4, `expected 4 identity rows, got ${identity.length}: [${identity.join(', ')}]`);
+    const validated = FM3_RANGE_OVERLAY.filter((e) => e.writeValidated === true).map((e) => `${e.family}/${e.paramId}`);
+    assert(
+      JSON.stringify(validated) === JSON.stringify(['CONTROLLERS/32']),
+      `exactly CONTROLLERS/32 (Tempo) must carry writeValidated; got [${validated.join(', ')}]`,
+    );
+    // Spell out the three that must NOT be marked, so a later "all four validated" claim fails here.
+    for (const key of ['CONTROLLERS/36', 'GLOBAL/67', 'REVERB/67']) {
+      const [fam, pid] = key.split('/');
+      const entry = FM3_RANGE_OVERLAY.find((e) => e.family === fam && e.paramId === Number(pid));
+      assert(entry !== undefined && entry.valueMap === 'identity', `${key} must still be an identity row`);
+      assert(entry!.writeValidated !== true, `${key}'s write is NOT hardware-validated — must not be marked`);
+    }
+    // The marker is carried into the merged table (so a runtime reader sees it, not just the overlay).
+    assert(FM3_RANGES.CONTROLLERS?.[32]?.writeValidated === true, 'merged Tempo row must carry writeValidated');
+    assert(FM3_RANGES.CONTROLLERS?.[36]?.writeValidated !== true, 'merged Stages row must NOT carry writeValidated');
+    assert(FM3_RANGES.GLOBAL?.[67]?.writeValidated !== true, 'merged Bank Size row must NOT carry writeValidated');
+    assert(FM3_RANGES.REVERB?.[67]?.writeValidated !== true, 'merged TONETYPE row must NOT carry writeValidated');
+    // Retiring the overlay must not silently drop the marker: a base with the mapping but no marker is not
+    // redundant for the Tempo entry.
+    const tempo = FM3_RANGE_OVERLAY.find((e) => e.family === 'CONTROLLERS' && e.paramId === 32)!;
+    const withMapNoMarker: Fm3ParamRange = { ...(FM3_RANGES.CONTROLLERS![32]!), writeValidated: undefined } as Fm3ParamRange;
+    delete (withMapNoMarker as { writeValidated?: boolean }).writeValidated;
+    assert(
+      overlayIsRedundant(tempo, withMapNoMarker) === false,
+      'a base carrying valueMap but not writeValidated is NOT redundant for the Tempo entry',
+    );
+  },
+});
+
 export const RANGE_OVERLAY_CASE_COUNT = cases.length;
 
 export function runRangeOverlayTests(): void {

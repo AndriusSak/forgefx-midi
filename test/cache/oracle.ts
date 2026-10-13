@@ -107,7 +107,9 @@ export function assertFm3Equivalence(built: OracleInput): OracleMargins {
   // pre-correction record and that the correction is not a no-op.
   // The 4 raw-is-value rows (`valueMap: 'identity'`) are the exception in the other direction: their
   // BOUNDS are unchanged (the declared range is right; only the read mapping was wrong), so they must
-  // AGREE with the fixture on bounds and differ only by the added `valueMap`.
+  // AGREE with the fixture on bounds. The merged row adds `valueMap` on all four plus `writeValidated`
+  // on Tempo alone (the only identity row whose WRITE is hardware-validated) — the fixture carries
+  // neither, so the comparison here is on bounds + `valueMap` only.
   const overlayKeys = new Set(FM3_RANGE_OVERLAY.map((e) => `${e.family}.${e.paramId}`));
   const identityKeys = new Set(FM3_RANGE_OVERLAY.filter((e) => e.valueMap === 'identity').map((e) => `${e.family}.${e.paramId}`));
   let rt = 0;

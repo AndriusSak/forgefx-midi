@@ -76,8 +76,16 @@ import type { Fm3ParamRange as GeneratedFm3ParamRange } from './ranges.generated
  */
 export type Fm3ValueMap = 'normalized' | 'identity';
 
-/** The generated row shape plus the overlay-supplied `valueMap`. A pure superset: every generated row is one. */
-export type Fm3ParamRange = GeneratedFm3ParamRange & { readonly valueMap?: Fm3ValueMap };
+/** The generated row shape plus the overlay-supplied `valueMap` / `writeValidated`. A pure superset: every generated row is one. */
+export type Fm3ParamRange = GeneratedFm3ParamRange & {
+  readonly valueMap?: Fm3ValueMap;
+  /**
+   * `true` only where the row's WRITE form has been validated on the unit — the marker that keeps an
+   * identity mapping from reading as a validated write. Absent (never a guessed `false`) means the write
+   * form is NOT hardware-validated; a reader must treat absent as unknown-and-unproven, not as "fine".
+   */
+  readonly writeValidated?: boolean;
+};
 
 /** One row correction: the (family, paramId) it fixes and its corrected bounds. */
 export interface Fm3RangeOverlayEntry {
@@ -91,6 +99,11 @@ export interface Fm3RangeOverlayEntry {
   readonly displayMax: number;
   /** Set to 'identity' for a row whose raw field IS the value (see {@link Fm3ValueMap}); absent = unchanged. */
   readonly valueMap?: Fm3ValueMap;
+  /**
+   * `true` for the ONE identity row whose write was validated on the unit. Every other identity row
+   * omits it — the read was measured, the write was not. See {@link Fm3ParamRange.writeValidated}.
+   */
+  readonly writeValidated?: boolean;
 }
 
 /** Family -> paramId -> range row, the shape of `FM3_RANGES`. */
@@ -108,7 +121,7 @@ export type Fm3RangeTable = Readonly<Record<string, Readonly<Record<number, Fm3P
  */
 export const FM3_RANGE_OVERLAY: readonly Fm3RangeOverlayEntry[] = [
   // ── raw-is-value rows (valueMap 'identity') — the 14-bit field carries the VALUE, not a position ─────
-  // Measured 2026-10-13 (`review-2026-10-13/probe-bounds-violations.json`, ForgeFX/server/scripts/
+  // READ: measured 2026-10-13 (`review-2026-10-13/probe-bounds-violations.json`, ForgeFX/server/scripts/
   // probe-bounds-violations.ts): unit view-0x00 display ÷ driver norm = 65530 for all four, i.e. display
   // == raw, and the raw is inside the declared range. The bounds stay the DECLARED range (they clamp a
   // write); only the read/write mapping changes. Decision per row: all four are served as a NUMBER, not
@@ -116,13 +129,23 @@ export const FM3_RANGE_OVERLAY: readonly Fm3RangeOverlayEntry[] = [
   // themselves; TONETYPE is discrete but NO label list exists anywhere in the repo (no AM4 enum, no
   // cache label table, no editor layout) and a bare ordinal shown as a number is the honest best until
   // the unit's labels are measured.
+  // WRITE — NOT validated for three of the four. Only Tempo's write form was exercised on the unit
+  // (`buildSetTempoViaParam`, forgefx-midi telemetry.ts — the FM3-validated param-address tempo write);
+  // the Stages / Bank Size / TONETYPE writes have NEVER been sent to hardware. Their read mapping is
+  // measured; their write mapping is INFERRED from the Tempo form and is marked accordingly by the
+  // `writeValidated` flag below (present on Tempo only). Do not read this table as "all four validated".
+  //
   // CONTROLLERS/32 Tempo: unit "120 BPM" at raw 120 (norm 0.0018311) [we served 24.414]; 2026-10-13
-  { family: 'CONTROLLERS', paramId: 32, displayMin: 24, displayMax: 250, valueMap: 'identity' },
+  // writeValidated: the typed-SET tempo write IS FM3-validated (`buildSetTempoViaParam` → telemetry.ts).
+  { family: 'CONTROLLERS', paramId: 32, displayMin: 24, displayMax: 250, valueMap: 'identity', writeValidated: true },
   // CONTROLLERS/36 SEQSTAGES (Stages): unit "8" at raw 8 (norm 0.00012207) [we served 2.004]; 2026-10-13
+  // WRITE UNVALIDATED — never sent to the unit; no `writeValidated`.
   { family: 'CONTROLLERS', paramId: 36, displayMin: 2, displayMax: 32, valueMap: 'identity' },
   // GLOBAL/67 FC_BANKSIZE (Bank Size): unit "3" at raw 3 (norm 4.5778e-05) [we served 1.001]; 2026-10-13
+  // WRITE UNVALIDATED — never sent to the unit; no `writeValidated`.
   { family: 'GLOBAL', paramId: 67, displayMin: 1, displayMax: 12, valueMap: 'identity' },
   // REVERB/67 TONETYPE: unit "1" at raw 1 (norm 1.5259e-05) [we served 0]; 2026-10-13
+  // WRITE UNVALIDATED — never sent to the unit; no `writeValidated`.
   { family: 'REVERB', paramId: 67, displayMin: 0, displayMax: 3, valueMap: 'identity' },
   // ── typecode-0x52 class: bounds → 0..10 ───────────────────────────────────────────────────────────
   // CABINET/33 CABINET_DRIVE: unit 0.00 at raw 0 (norm 0) [our row's floor was 0.01, i.e. above the device's].
@@ -190,6 +213,7 @@ export function applyFm3RangeOverlay(base: Fm3RangeTable): Fm3RangeTable {
       displayMin: entry.displayMin,
       displayMax: entry.displayMax,
       ...(entry.valueMap ? { valueMap: entry.valueMap } : {}),
+      ...(entry.writeValidated ? { writeValidated: entry.writeValidated } : {}),
     };
   }
   return out;
@@ -207,7 +231,10 @@ export function overlayIsRedundant(
     base !== undefined &&
     base.displayMin === entry.displayMin &&
     base.displayMax === entry.displayMax &&
-    (entry.valueMap === undefined || base.valueMap === entry.valueMap)
+    (entry.valueMap === undefined || base.valueMap === entry.valueMap) &&
+    // `writeValidated` is overlay-only metadata, not a bound correction — but retiring the overlay
+    // would drop it, so a base that carries the mapping but not the marker is NOT redundant.
+    (entry.writeValidated === undefined || base.writeValidated === entry.writeValidated)
   );
 }
 
