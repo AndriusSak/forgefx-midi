@@ -57,7 +57,7 @@ import {
  *  enum label overrides, clean type/model rosters, and the effectId→family map. */
 export interface Gen3BlockParamTables {
   paramsByFamily: Record<string, readonly Pick<Param, 'paramId' | 'name' | 'displayLabel' | 'unit'>[]>;
-  ranges: Record<string, Record<number, { kind?: string; displayMin: number; displayMax: number }>>;
+  ranges: Record<string, Record<number, { kind?: string; displayMin: number; displayMax: number; valueMap?: string }>>;
   enumOverrides: Record<string, Record<string, readonly string[]>>;
   /** Per UI slug: clean model roster ({ value: ordinal, name }) for TYPE params. */
   rosters: Record<string, readonly { value: number; name: string }[]>;
@@ -307,7 +307,16 @@ function decodeOne(
     if (r?.kind === 'enum') {
       eLabel = enumLabel(tables, family, slug, paramId, isType, raw);
     } else if (r && r.displayMax !== r.displayMin) {
-      value = r.displayMin + (raw / VALUE_MODEL_MAX) * (r.displayMax - r.displayMin);
+      // The row's display mapping. A row the range overlay marks `valueMap: 'identity'` carries the VALUE
+      // ITSELF in the 14-bit field (display == raw), NOT a position over [displayMin, displayMax] — this is
+      // the SAME mapping the live server applies (`ForgeFX/server/src/drivers/gen3.ts` `#display`, gated on
+      // `rangeIsIdentity(range)`), and its bounds are the declared WRITE range only. Applying it here, in
+      // this single value-computation site, is what makes the offline preset-body decode
+      // (`readBlockParams`, used by the server's `#decodeBlocks` DUMP path) agree with the LIVE path for
+      // every identity row; it keys off the row, so no (family, paramId) is special-cased.
+      value = r.valueMap === 'identity'
+        ? raw
+        : r.displayMin + (raw / VALUE_MODEL_MAX) * (r.displayMax - r.displayMin);
     } else {
       value = raw; // un-ranged / scale-0 param: surface the raw value
     }

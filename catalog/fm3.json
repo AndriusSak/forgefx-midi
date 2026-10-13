@@ -12514,7 +12514,7 @@
         "family": "REVERB",
         "paramId": 67,
         "name": "REVERB_TONETYPE",
-        "unit": "db",
+        "unit": "numeric",
         "displayMin": 0,
         "displayMax": 3
       },
@@ -16500,7 +16500,8 @@
           "step": 0,
           "typecode": 2848,
           "defaultRaw": 27837,
-          "valueMap": "identity"
+          "valueMap": "identity",
+          "writeValidated": true
         },
         "33": {
           "kind": "enum",

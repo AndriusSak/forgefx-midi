@@ -7939,7 +7939,7 @@
           "kind": "float",
           "raw": 0,
           "value": 0,
-          "unit": "db"
+          "unit": "numeric"
         },
         {
           "paramId": 68,

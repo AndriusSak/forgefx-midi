@@ -9,6 +9,33 @@
  * decodeGen3Body grid → readBlockParams) and requires field-exact equality —
  * it validates BOTH the upstreamed extraction logic and the package grid
  * decode's placed-block set against the live implementation.
+ *
+ * GOLDEN REFRESH 2026-10-13 — valueMap 'identity' in the OFFLINE decoder (defect A)
+ * --------------------------------------------------------------------------------
+ * The goldens were re-emitted OFFLINE (never hand-edited) by
+ * `scripts/refresh-fm3-blockparams-goldens.ts`, which runs the SAME pipeline this suite
+ * runs. The offline decoder used to map EVERY float row as a normalized position over
+ * [displayMin, displayMax], ignoring the range overlay's `valueMap` — so the DUMP decode
+ * (`readBlockParams`, the server's `#decodeBlocks` path) carried the defect the LIVE path
+ * had already fixed in `e9fa1a6`. `decodeOne` now reads an `identity` row (display == raw)
+ * the way the live server's `#display` does, keyed off the row so no (family, paramId) is
+ * special-cased.
+ *
+ * Changed golden entries — ALL ten on the SAME identity row, REVERB/67 REVERB_TONETYPE
+ * (placed at effectId 66), and NOTHING else (byte-identical elsewhere; the set was diffed
+ * with `git diff --numstat`, 10 added / 10 removed, and position-aligned per param):
+ *   - value: 0.00004577776421399579 -> 1   (preset-5, preset-67 — the two fixtures whose
+ *     raw is 1; the other six hold raw 0, where identity and normalized already agree).
+ *     WHY 1 IS RIGHT: the unit's OWN display string (self-describe view 0x00) for this row
+ *     read a bare `1` at raw 1 — `ForgeFX/server/scripts/probe-formatted-value.ts
+ *     --eid 66 --pids 67,68,69,70,71`, 2026-10-13. The old value was raw/65534 of a 0..3
+ *     span, i.e. the normalized reading of a field that carries the value itself.
+ *   - unit: "db" -> "numeric" (all ten fixtures; REVERB/67 is placed everywhere).
+ *     WHY 'numeric' IS RIGHT: the same probe shows the row displays a BARE number with NO
+ *     unit — the old `db` (its own comment said "inferred from AM4") made the UI render
+ *     "1 dB" for a unitless tone-type selector.
+ * `REVERB_PREDLYTAP` (paramId 68) is NOT touched: its unit/name/id were left as-is (a name
+ * change needs the owner's hardware and a name oracle — see the PID-68 note in params.ts).
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -95,6 +122,23 @@ export function runFm3BlockParamsTests(): void {
 
     const blocks = readBlockParamsForModel(decoded.body, placedEids, FM3);
     assertDeepEqual(blocks, expected.blocks, `preset-${n}.blocks`);
+
+    // Identity mapping (range overlay `valueMap:'identity'`): the offline decoder must read the 14-bit
+    // field AS the value — `display == raw` — exactly as the live server's `#display` does behind
+    // `rangeIsIdentity`, never a normalized position over [displayMin, displayMax]. Keyed off the RANGE
+    // TABLE, so it covers every identity row the fixture happens to place and cannot be satisfied by
+    // special-casing one (the live path's defect A: the DUMP decode ignored the map the LIVE decode used).
+    const { tables } = gen3BlockParamModel(FM3);
+    for (const blk of blocks as { family: string; params: { paramId: number; name: string; value: number | null; raw: number }[] }[]) {
+      for (const p of blk.params) {
+        if (tables.ranges[blk.family]?.[p.paramId]?.valueMap === 'identity' && p.value !== p.raw) {
+          throw new Error(
+            `[fm3/blockparams] preset-${n}: identity-mapped row ${blk.family}/${p.paramId} (${p.name}) ` +
+              `decoded value ${p.value} !== raw ${p.raw} — the offline decoder ignored valueMap 'identity'`,
+          );
+        }
+      }
+    }
 
     // models projection sanity: every rostered type name in the projection is non-#ordinal
     const models = modelsFromBlocks(blocks);

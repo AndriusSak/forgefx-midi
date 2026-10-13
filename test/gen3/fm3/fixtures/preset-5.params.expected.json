@@ -7618,8 +7618,8 @@
           "label": "REVERB_TONETYPE",
           "kind": "float",
           "raw": 1,
-          "value": 0.00004577776421399579,
-          "unit": "db"
+          "value": 1,
+          "unit": "numeric"
         },
         {
           "paramId": 68,
