@@ -59,6 +59,7 @@ import { runPresetSynthCatalogTests, PRESET_SYNTH_CATALOG_CASE_COUNT } from './g
 import { runGen3SynthNonFm3Tests, GEN3_SYNTH_NONFM3_CASE_COUNT } from './gen3/gen3-synth-nonfm3.test.js';
 import { runRoutingRoundTripTests, ROUTING_ROUNDTRIP_CASE_COUNT } from './gen3/fm3/routing-roundtrip.test.js';
 import { runCabIrSyxTests, CAB_IR_SYX_CASE_COUNT } from './gen3/fm3/cab-ir-syx.test.js';
+import { runCabIrConvertTests, CAB_IR_CONVERT_CASE_COUNT } from './gen3/fm3/cab-ir-convert.test.js';
 import { runCabSlotStateTests, CAB_SLOT_STATE_CASE_COUNT } from './gen3/fm3/cab-slot-state.test.js';
 import { runPerformPageTests, PERFORM_PAGE_CASE_COUNT } from './gen3/fm3/perform-page.test.js';
 import { runPerPresetSwitchTests, PER_PRESET_SWITCH_CASE_COUNT } from './gen3/fm3/per-preset-switches.test.js';
@@ -167,6 +168,7 @@ const tests: Array<{ name: string; run: () => void | Promise<void> }> = [
   { name: `gen3-synth-nonfm3 (${GEN3_SYNTH_NONFM3_CASE_COUNT} devices: FM9 + Axe-Fx III full-body synthesis round-trip)`, run: runGen3SynthNonFm3Tests },
   { name: `fm3/routing-roundtrip (${ROUTING_ROUNDTRIP_CASE_COUNT} grid route-flag cases)`, run: runRoutingRoundTripTests },
   { name: `fm3/cab-ir-syx (${CAB_IR_SYX_CASE_COUNT} user-cab IR container cases)`, run: runCabIrSyxTests },
+  { name: `fm3/cab-ir-convert (${CAB_IR_CONVERT_CASE_COUNT} .wav → cab IR conversion cases)`, run: runCabIrConvertTests },
   { name: `fm3/cab-slot-state (${CAB_SLOT_STATE_CASE_COUNT} per-slot cab state cases)`, run: runCabSlotStateTests },
   { name: `fm3/perform-page (${PERFORM_PAGE_CASE_COUNT} per-preset perform page cases)`, run: runPerformPageTests },
   { name: `fm3/per-preset-switches (${PER_PRESET_SWITCH_CASE_COUNT} S3.8 cases, marker search + honest empty/unmeasured handling)`, run: runPerPresetSwitchTests },

@@ -410,7 +410,7 @@ export const CAB_IR_DATA_FRAMES = 8;
 export const CAB_IR_DATA_PREFIX: readonly number[] = [0x00, 0x02];
 
 /** Models whose IR-container geometry this module has MEASURED (10 frames × 256 chunks, prefix 00 02). */
-const CAB_IR_KNOWN_GEOMETRY_MODELS: readonly number[] = [0x10, 0x11];
+export const CAB_IR_KNOWN_GEOMETRY_MODELS: readonly number[] = [0x10, 0x11];
 
 /**
  * Build a BLANK container from scratch — the delete — for `dest`.
@@ -508,6 +508,62 @@ export function cabIrContentXor(bytes: readonly number[] | Uint8Array): number {
 /** The 5-septet close payload for a container's content — `pack5Septet32(cabIrContentXor(...))`. */
 export function computeCabIrClosePayload(bytes: readonly number[] | Uint8Array): number[] {
   return pack5Septet32(cabIrContentXor(bytes));
+}
+
+/**
+ * The name-slot flag pattern a NEW container is written with: bit 7 set on slot 31 only — copied from the
+ * one real FM3-Edit specimen (see the module header). The flag's meaning is UNVERIFIED, so this is the
+ * best-evidenced default, not a decoded rule; `buildCabIrContainerFromWords` takes an override.
+ */
+export const CAB_IR_DEFAULT_NAME_SLOT_FLAGS: readonly boolean[] = Array.from({ length: CAB_IR_NAME_CHARS }, (_, i) => i === CAB_IR_NAME_CHARS - 1);
+
+/**
+ * Build a COMPLETE container from scratch for `dest`: `0x7A` start, 8 × `0x7B` data (the 8 name chunks
+ * then `sampleWords`), and a `0x7C` close that is COMPUTED from the content (`computeCabIrClosePayload`).
+ *
+ * `sampleWords` are the 2040 32-bit words that go in the sample slots, ALREADY ENCODED — this function
+ * does not know (and does not claim to know) what a word means; see `cabIrConvert.ts` for the assumed
+ * sample encoding. What it guarantees is TRANSPORT integrity: frame checksums valid, geometry exactly the
+ * measured 8 × 256 chunks, and a close value that matches the content, so the unit's close check passes.
+ * That check is a check of the bytes sent, not of what they mean — it cannot catch a wrong encoding.
+ *
+ * Refuses a model whose geometry has not been measured (same rule as the blank container).
+ */
+export function buildCabIrContainerFromWords(
+  model: number,
+  dest: CabIrDestination,
+  name: string,
+  sampleWords: readonly number[],
+  opts: { nameSlotFlags?: readonly boolean[] } = {},
+): number[] {
+  if (!CAB_IR_KNOWN_GEOMETRY_MODELS.includes(model)) {
+    throw new Error(
+      `buildCabIrContainerFromWords: the IR-container geometry for model 0x${model.toString(16)} has not been measured ` +
+        `(known: ${CAB_IR_KNOWN_GEOMETRY_MODELS.map((m) => `0x${m.toString(16)}`).join(', ')}).`,
+    );
+  }
+  if (sampleWords.length !== CAB_IR_SAMPLE_SLOTS) {
+    throw new Error(`buildCabIrContainerFromWords: need exactly ${CAB_IR_SAMPLE_SLOTS} sample words, got ${sampleWords.length}`);
+  }
+  const wanted = [...name];
+  if (wanted.length > CAB_IR_NAME_CHARS) throw new Error(`buildCabIrContainerFromWords: name is ${wanted.length} characters — the device stores ${CAB_IR_NAME_CHARS}`);
+  if (wanted.some((c) => c.charCodeAt(0) > 0x7f)) throw new Error('buildCabIrContainerFromWords: name must be 7-bit ASCII');
+  const flags = opts.nameSlotFlags ?? CAB_IR_DEFAULT_NAME_SLOT_FLAGS;
+  const slots = Array.from({ length: CAB_IR_NAME_CHARS }, (_, i) => (flags[i] ? 0x80 : 0) | ((wanted[i] ?? ' ').charCodeAt(0) & 0x7f));
+  const chunks: number[] = [];
+  for (let c = 0; c < CAB_IR_NAME_CHUNKS; c++) {
+    chunks.push(...pack5Septet32(((slots[c * 4]!) | (slots[c * 4 + 1]! << 8) | (slots[c * 4 + 2]! << 16) | (slots[c * 4 + 3]! << 24)) >>> 0));
+  }
+  for (const w of sampleWords) {
+    if (!Number.isInteger(w) || w < 0 || w > 0xffffffff) throw new Error(`buildCabIrContainerFromWords: sample word ${w} is not a uint32`);
+    chunks.push(...pack5Septet32(w));
+  }
+  const frames: number[][] = [frameWithChecksum(model, CAB_IR_FN_START, buildCabIrStartPayload(dest))];
+  for (let f = 0; f < CAB_IR_DATA_FRAMES; f++) {
+    frames.push(frameWithChecksum(model, CAB_IR_FN_DATA, [...CAB_IR_DATA_PREFIX, ...chunks.slice(f * CAB_IR_CHUNK_BYTES_PER_FRAME, (f + 1) * CAB_IR_CHUNK_BYTES_PER_FRAME)]));
+  }
+  frames.push(frameWithChecksum(model, CAB_IR_FN_END, computeCabIrClosePayload(frames.flat())));
+  return frames.flat();
 }
 
 /** Rewrite a container's close frame to the value its content requires (and re-fix its frame checksum). */

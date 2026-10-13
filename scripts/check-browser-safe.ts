@@ -33,6 +33,7 @@ const ENTRIES = [
   'src/gen3/vp4/index.ts',
   'src/devices/gen1/index.ts',
   'src/devices/gen3/index.ts',
+  'src/devices/gen3/cabIrConvert.ts',
   'src/devices/am4/index.ts',
 ];
 

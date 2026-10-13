@@ -169,7 +169,24 @@ export {
   CAB_IR_PAGE_SCRATCHPAD,
   CAB_IR_DEST_NONE,
   CAB_IR_START_TAIL,
+  CAB_IR_KNOWN_GEOMETRY_MODELS,
+  CAB_IR_DEFAULT_NAME_SLOT_FLAGS,
+  buildCabIrContainerFromWords,
 } from './cabIrSyx.js';
+
+// `.wav` → container conversion (UNVALIDATED on the unit — see cabIrConvert.ts) and its pure DSP.
+export {
+  convertWavToCabIr,
+  cabIrContainerSelfConsistent,
+  cabIrNameFromFilename,
+  ASSUMED_FLOAT32_ENCODING,
+  CAB_IR_OUTPUT_FORMATS,
+  CAB_IR_SAMPLE_RATE,
+  CAB_IR_CONVERSION_STATUS,
+} from './cabIrConvert.js';
+export type { CabIrConvertOptions, CabIrConvertReport, CabIrConvertResult, CabIrSampleEncoding, CabIrOutputFormat } from './cabIrConvert.js';
+export { parseWav, mixToMono, resample, minimumPhase, autoTrim, fitLength, fft } from './cabIrAudio.js';
+export type { WavData, AutoTrimResult } from './cabIrAudio.js';
 export type { CabIrSyx, CabIrDestination, CabIrUploadAcks } from './cabIrSyx.js';
 
 // Per-slot cab STATE (`fn=0x01 sub=0x4B`) — the read-back the IR upload lacked. Measured: the reply's
