@@ -321,9 +321,12 @@ export function runCabIrConvertTests(): void {
     const payload = parseCabIrSyx(r.container).frames[1]!.slice(6);
     ok(JSON.stringify(payload.slice(2 + 40, 2 + 45)) !== JSON.stringify([0, 0, 0, 0x7c, 0x03]), 'different encoding, different bytes');
   });
-  t('convert: report carries the UNVALIDATED status, the assumed-encoding flag and the ordered steps', () => {
+  t('convert: report carries the CONSTRAINED status, the assumed-encoding flag and the ordered steps', () => {
     const r = convertWavToCabIr(wavBytes({ tag: 1, bits: 16, channels: 2, rate: 44100, interleaved: [0, 0, 8192, 8192, 0, 0] }), { dest, name: 'R', minimumPhase: true, autoTrim: true });
-    ok(/^UNVALIDATED/.test(r.report.status), 'status says UNVALIDATED');
+    // The status must state the MEASURED claim: one impulse auditioned, encoding CONSTRAINED but not
+    // discriminated (a wrong encoding could still sound transparent at ~6 dB quieter under Q31).
+    ok(/^CONSTRAINED/.test(r.report.status), 'status says CONSTRAINED (one impulse auditioned; not discriminated)');
+    ok(/not.*discriminate/i.test(r.report.status), 'status says the encoding is not discriminated');
     eq(r.report.encoding.assumed, true, 'encoding assumed');
     eq(r.report.mixedDownFromChannels, 2, 'mixdown noted');
     eq(r.report.resampledFrom, 44100, 'resample noted');

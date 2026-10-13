@@ -336,7 +336,12 @@ export function convertPreset(
             targetMax: range.max,
           });
         }
-        const normalized = range.max !== range.min ? (clamped - range.min) / (range.max - range.min) : undefined;
+        // The target's DISPLAY MAPPING, not just its bounds. An `identity` row's field carries the
+        // VALUE ITSELF (display == raw), so it must NOT be normalized by position over [min,max]:
+        // `valueToRaw` writes the value verbatim for such a row. This is the same `valueMap` the
+        // offline decoder keys off (`blockParams.decodeOne`), so the write cannot drift from the read.
+        const identity = range.identity === true;
+        const normalized = !identity && range.max !== range.min ? (clamped - range.min) / (range.max - range.min) : undefined;
         mapped.push({
           nativeName: tgtName,
           conceptKey: p.conceptKey,
@@ -345,6 +350,7 @@ export function convertPreset(
           max: range.max,
           ...(range.unit !== undefined ? { unit: range.unit } : {}),
           ...(range.log ? { log: true } : {}),
+          ...(identity ? { identity: true } : {}),
           ...(normalized !== undefined ? { normalized } : {}),
           displayValue: String(clamped),
           ...(enumOptions ? { enumOptions } : {}),

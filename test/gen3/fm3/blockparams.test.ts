@@ -10,32 +10,41 @@
  * it validates BOTH the upstreamed extraction logic and the package grid
  * decode's placed-block set against the live implementation.
  *
- * GOLDEN REFRESH 2026-10-13 — valueMap 'identity' in the OFFLINE decoder (defect A)
- * --------------------------------------------------------------------------------
- * The goldens were re-emitted OFFLINE (never hand-edited) by
- * `scripts/refresh-fm3-blockparams-goldens.ts`, which runs the SAME pipeline this suite
- * runs. The offline decoder used to map EVERY float row as a normalized position over
- * [displayMin, displayMax], ignoring the range overlay's `valueMap` — so the DUMP decode
- * (`readBlockParams`, the server's `#decodeBlocks` path) carried the defect the LIVE path
- * had already fixed in `e9fa1a6`. `decodeOne` now reads an `identity` row (display == raw)
- * the way the live server's `#display` does, keyed off the row so no (family, paramId) is
- * special-cased.
+ * ORACLE PROVENANCE — the fixtures BEGAN as a live capture; the refresh replaced it
+ * -------------------------------------------------------------------------------
+ * `preset-<n>.syx` / `preset-<n>.params.expected.json` were captured from a REAL FM3 through the
+ * pre-migration ForgeFX server (`scripts/capture-fm3-goldens.ts:1-10`); at capture time the server's own
+ * live-validated decode WAS an independent oracle for these rows. The refresh below re-emitted the
+ * `params.expected` fixtures from the OFFLINE decoder itself (`scripts/refresh-fm3-blockparams-goldens.ts`),
+ * because the live path cannot be re-run here (the serial port is held by the server). CONSEQUENCE, stated
+ * plainly: on the row the refresh moved, this suite now compares the decoder against its OWN output — the
+ * fixture is no longer an independent oracle there. The one independent check that survives is the identity
+ * assertion at the end of the per-preset loop (it reads the RANGE TABLE, not the fixture, and covers the
+ * overlay `valueMap:'identity'` rows each fixture PLACES — in these ten that is REVERB/67 only). The
+ * live-captured sibling `preset-<n>.summary.expected.json` were NOT refreshed and are NOT read here; their
+ * REVERB/67 entry is stale by construction (see fixtures/README.md for the decision and a guard).
  *
- * Changed golden entries — ALL ten on the SAME identity row, REVERB/67 REVERB_TONETYPE
- * (placed at effectId 66), and NOTHING else (byte-identical elsewhere; the set was diffed
- * with `git diff --numstat`, 10 added / 10 removed, and position-aligned per param):
- *   - value: 0.00004577776421399579 -> 1   (preset-5, preset-67 — the two fixtures whose
- *     raw is 1; the other six hold raw 0, where identity and normalized already agree).
- *     WHY 1 IS RIGHT: the unit's OWN display string (self-describe view 0x00) for this row
- *     read a bare `1` at raw 1 — `ForgeFX/server/scripts/probe-formatted-value.ts
- *     --eid 66 --pids 67,68,69,70,71`, 2026-10-13. The old value was raw/65534 of a 0..3
- *     span, i.e. the normalized reading of a field that carries the value itself.
- *   - unit: "db" -> "numeric" (all ten fixtures; REVERB/67 is placed everywhere).
- *     WHY 'numeric' IS RIGHT: the same probe shows the row displays a BARE number with NO
- *     unit — the old `db` (its own comment said "inferred from AM4") made the UI render
- *     "1 dB" for a unitless tone-type selector.
- * `REVERB_PREDLYTAP` (paramId 68) is NOT touched: its unit/name/id were left as-is (a name
- * change needs the owner's hardware and a name oracle — see the PID-68 note in params.ts).
+ * GOLDEN REFRESH 2026-10-13 — valueMap 'identity' in the OFFLINE decoder (defect A) + the REVERB/67 unit
+ * relabel (defect B, unrelated). Ten changed LINES across EIGHT files — 10 added / 10 removed, diffed with
+ * `git diff --numstat` and position-aligned per param. THESE ARE TWO SEPARATE DEFECTS; do not read the ten
+ * lines as ten data points for the decoder fix:
+ *   • 2 lines are the DECODER FIX (defect A) — `value: 0.00004577776421399579 -> 1`, in preset-5 and
+ *     preset-67 ONLY, the two fixtures whose REVERB/67 raw is 1. The other six that place REVERB hold raw 0,
+ *     where the identity and the old position reading already AGREE — so raw 0 cannot distinguish the two
+ *     mappings and the decoder fix rests on TWO data points of ONE row.
+ *     WHY 1 IS RIGHT: the unit's OWN display string (self-describe view 0x00) for this row read a bare `1`
+ *     at raw 1 — `ForgeFX/server/scripts/probe-formatted-value.ts --eid 66 --pids 67,68,69,70,71`, 2026-10-13.
+ *     The old value was raw/65534 over a 0..3 span — a normalized reading of a field that carries the value.
+ *   • 8 lines are the UNIT RELABEL (defect B, NOT the decoder) — `unit: "db" -> "numeric"`, one line in each of
+ *     the EIGHT fixtures that place REVERB (42, 45, 5, 55, 62, 63, 67, 79). presets 82 and 96 do NOT place
+ *     REVERB, so they were not touched — neither the earlier claim "all ten fixtures" nor "REVERB/67 is placed
+ *     everywhere" holds (the commit message has the true figure).
+ *     WHY 'numeric' IS RIGHT: the same probe shows the row displays a BARE number with NO unit — the old `db`
+ *     (its own comment said "inferred from AM4") made the UI render "1 dB" for a unitless tone-type selector.
+ * `decodeOne` now reads an `identity` row (display == raw) the way the live server's `#display` does, keyed off
+ * the row so no (family, paramId) is special-cased. `REVERB_PREDLYTAP` (paramId 68) is NOT touched: its
+ * unit/name/id were left as-is (a name change needs the owner's hardware and a name oracle — see the PID-68
+ * note in params.ts).
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -87,6 +96,46 @@ function diff(a: unknown, e: unknown, path: string): void {
     return;
   }
   if (a !== e) throw new Error(`${path}: ${JSON.stringify(a)} !== expected ${JSON.stringify(e)}`);
+}
+
+/**
+ * Guard the RETIRED live-captured summary goldens. `preset-<n>.summary.expected.json` were not refreshed and
+ * are not read by any suite, so their REVERB/67 entry is stale by construction (the old position-mapped
+ * identity decode: `unit:"db"`, and value `4.5778e-05` where raw is 1) — documented in fixtures/README.md.
+ * Pinning it here means a future normalise/hand-edit has to come with a decision, and a reader can never
+ * mistake the summary for a second oracle for the corrected row. (Positive control: it asserts it found the
+ * row in at least one summary, so a renamed/moved fixture cannot make the guard vacuous.)
+ */
+function assertSummaryGoldensAreDocumentedStale(): void {
+  const STALE_RAW1_VALUE = 4.577776421399579e-05;
+  let checked = 0;
+  for (const n of listPresetFixtures()) {
+    const file = join(FIXTURES, `preset-${n}.summary.expected.json`);
+    let summary: { params?: { params?: { name?: string; raw?: number; value?: number; unit?: string }[] }[] };
+    try {
+      summary = JSON.parse(readFileSync(file, 'utf8'));
+    } catch {
+      continue; // no summary fixture — nothing to guard for this preset
+    }
+    for (const blk of summary.params ?? []) {
+      for (const p of blk.params ?? []) {
+        if (p.name !== 'REVERB_TONETYPE') continue;
+        checked += 1;
+        const wantValue = p.raw === 1 ? STALE_RAW1_VALUE : 0;
+        if (p.unit !== 'db' || p.value !== wantValue) {
+          throw new Error(
+            `[fm3/blockparams] preset-${n}.summary REVERB_TONETYPE is no longer the documented STALE capture ` +
+              `(value ${p.value}, unit ${p.unit}); the corrected decode is value ${p.raw} / unit "numeric". ` +
+              `This summary is retired as an oracle — update fixtures/README.md and this guard, or wire the ` +
+              `summary into the suite, rather than letting the two disagree silently.`,
+          );
+        }
+      }
+    }
+  }
+  if (checked === 0) {
+    throw new Error('[fm3/blockparams] summary-staleness guard found no REVERB_TONETYPE — fixtures moved? (vacuous guard)');
+  }
 }
 
 export function runFm3BlockParamsTests(): void {
@@ -148,4 +197,7 @@ export function runFm3BlockParamsTests(): void {
       }
     }
   }
+
+  // The sibling summary goldens are retired (unconsumed live captures); keep their staleness honest.
+  assertSummaryGoldensAreDocumentedStale();
 }

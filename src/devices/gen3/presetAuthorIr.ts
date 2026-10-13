@@ -90,6 +90,8 @@ export interface IrAuthorParam {
   min?: number;
   max?: number;
   log?: boolean;
+  /** `valueMap:'identity'` row: write `value` verbatim (see `valueToRaw`). */
+  identity?: boolean;
 }
 
 /** One block to write. Matched to a base block by `blockName` (a device block

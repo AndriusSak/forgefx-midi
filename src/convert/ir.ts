@@ -82,6 +82,12 @@ export interface ConverterParam {
   /** Logarithmic taper (frequency / time knobs) — interpolate geometrically. */
   log?: boolean;
   /**
+   * The target row is an overlay `valueMap:'identity'` row — its raw field IS the value (display == raw),
+   * not a position over [min,max]. The writer must emit `value` verbatim (`valueToRaw`'s identity branch),
+   * never `(value-min)/(max-min)`. Attached by the engine from `resolveTargetRange` (see `targetRanges.ts`).
+   */
+  identity?: boolean;
+  /**
    * Ordered enum option labels (index = ordinal), attached when the target
    * param is a cleanly-labelled enum. Present → the editor renders a dropdown.
    */

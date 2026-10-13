@@ -420,22 +420,43 @@ export function writeBlockParam(
 }
 
 /** Value → raw u16 for the 0..65534 device model, the inverse of `decodeOne`.
- *  Priority: (1) the IR's normalized 0..1 (raw = round(normalized*65534)); else
+ *  Priority: (0) an `identity` row (the raw field IS the value — see `decodeOne`'s
+ *  `valueMap === 'identity'` branch): raw = round(value), clamped to [min,max]; else
+ *  (1) the IR's normalized 0..1 (raw = round(normalized*65534)); else
  *  (2) a display range (min/max, optional log taper) inverted; else (3) the
  *  value treated as an already-raw ordinal/int. NOTE: `readBlockParams` decodes
  *  continuous params LINEARLY (`displayMin + raw/65534*range`) regardless of a
  *  log taper, so a log-inverted raw only round-trips back to its display value
  *  through a log-aware reader — through `readBlockParams` it reads linearly.
- *  Prefer `normalized` for exact round-trips. */
+ *  Prefer `normalized` for exact round-trips.
+ *
+ *  The `identity` branch is the SINGLE write-side counterpart of `decodeOne`'s
+ *  identity branch (this file holds both, so they cannot drift): a row the range
+ *  overlay marks `valueMap:'identity'` (raw field carries the value, not a
+ *  position over [displayMin,displayMax]) must WRITE `value` verbatim, never
+ *  `(value-min)/(max-min)` — otherwise a TONETYPE of 1 would be written as
+ *  ~21845 (the position of 1 in 0..3) instead of 1. */
 export interface RawWritableParam {
   normalized?: number;
   value?: number;
   min?: number;
   max?: number;
   log?: boolean;
+  /** True for a range-overlay `valueMap:'identity'` row (raw field IS the value). */
+  identity?: boolean;
 }
 export function valueToRaw(param: RawWritableParam): number {
   const clamp = (r: number): number => Math.max(0, Math.min(VALUE_MODEL_MAX, Math.round(r)));
+  if (param.identity) {
+    const iv = param.value;
+    if (iv == null || !Number.isFinite(iv)) {
+      throw new Error('valueToRaw: identity param has no finite `value`');
+    }
+    const { min, max } = param;
+    const lo = min != null ? min : 0;
+    const hi = max != null ? max : VALUE_MODEL_MAX;
+    return clamp(Math.max(lo, Math.min(hi, iv)));
+  }
   if (param.normalized != null && Number.isFinite(param.normalized)) {
     return clamp(param.normalized * VALUE_MODEL_MAX);
   }

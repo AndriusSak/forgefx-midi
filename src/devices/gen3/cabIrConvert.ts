@@ -4,22 +4,28 @@
  * Self-contained browser-safe subpath: `forgefx-midi/devices/gen3/cabIrConvert` (Axis runs it client-side).
  * It also re-exports the container helpers the import/rename UI needs, so the client imports one module.
  *
- * ─── ⚠ STATUS: UNVALIDATED ON THE UNIT ────────────────────────────────────────────────────────────
- * No container produced here has been uploaded to a unit and listened to. What IS established:
+ * ─── ⚠ STATUS: ONE IMPULSE AUDITIONED; ENCODING CONSTRAINED, NOT DISCRIMINATED ─────────────────────
+ * One impulse was converted by this pipeline, uploaded, accepted by the unit (the slot read back
+ * `populated`, with our name) and AUDITIONED — it sounded TRANSPARENT. That proves the TRANSPORT, the name
+ * round-trip and end-to-end ACCEPTANCE. It does NOT discriminate the sample ENCODING: the impulse's single
+ * word `0x3F800000` read as int32 Q31 is `1065353216 / 2³¹ = 0.496` — STILL an impulse, STILL transparent,
+ * only ~6 dB quieter — and every other word is zero (which decodes as zero under almost any encoding). So the
+ * encoding is CONSTRAINED — silence, hash and gross garbage are ruled out — but NOT DISCRIMINATED between
+ * IEEE-754 float32 and int32 Q31. What IS established:
  *   • the container's TRANSPORT (frame geometry, checksums, the content-XOR close value) — the same
  *     codec path that stored a verbatim container, a renamed container and a blank container on hardware;
  *   • the DSP stages, against signals with independently computed answers (test/gen3/fm3/cab-ir-audio).
  * What is NOT established — and is the crux:
  *
  *   A1  THE SAMPLE ENCODING. The 2040 sample slots are 32-bit words (5 LSB-first septets each) — that much
- *       is geometry. What a word MEANS is undecoded: the one real specimen measured 2026-10-08 did not read
- *       as plausible PCM or float32 under any alignment tried (see cabIrSyx.ts), and no sample-bearing
- *       container exists in this repo or on this host to re-check (the only specimens on disk are the
- *       all-zero-sample hardware-test containers — their data is silence under any encoding). So the
- *       encoder below is an ASSUMPTION, isolated in one object (`ASSUMED_FLOAT32_ENCODING`), named in every
- *       report, pinned by a test that must be edited the day a real capture decodes the field. The
- *       assumption is the simplest one that costs nothing to state: slot k carries sample k as a
- *       little-endian IEEE-754 float32 in ±1.0, at 48 kHz. The prior measurement is evidence AGAINST it.
+ *       is geometry. What a word MEANS is constrained but not discriminated (see the status above): the one
+ *       real specimen measured 2026-10-08 did not read as plausible PCM or float32 under any alignment tried
+ *       (see cabIrSyx.ts), and no sample-bearing container exists in this repo or on this host to re-check
+ *       (the only specimens on disk are the all-zero-sample hardware-test containers — their data is silence
+ *       under any encoding). So the encoder below is an ASSUMPTION, isolated in one object
+ *       (`ASSUMED_FLOAT32_ENCODING`), named in every report, pinned by a test that must be edited the day a
+ *       real capture decodes the field: slot k carries sample k as a little-endian IEEE-754 float32 in ±1.0,
+ *       at 48 kHz.
  *   A2  Sample rate 48 kHz, time order (slot 0 = first sample), full scale 1.0.
  *   A3  The name-slot flag pattern (copied from the specimen) and the model byte (0x11 = FM3).
  *
@@ -59,7 +65,7 @@ export const CAB_IR_SAMPLE_RATE = 48000;
 export const CAB_IR_MAX_WORK_SAMPLES = 16384;
 
 export const CAB_IR_CONVERSION_STATUS =
-  'UNVALIDATED — a converted container has not been uploaded to a unit and auditioned. The unit’s close check proves the bytes arrived intact, not that the samples were encoded the way the unit reads them.';
+  'CONSTRAINED — one impulse was auditioned through the unit and sounded transparent (the transport, the name round-trip and end-to-end acceptance are proven), but that does NOT discriminate the sample encoding: the impulse reads the same under IEEE-754 float32 and int32 Q31. The unit’s close check proves the bytes arrived intact, not that the samples were encoded the way the unit reads them.';
 
 // ── the assumed sample encoding (A1) ────────────────────────────────────────────────────────────
 
@@ -275,10 +281,13 @@ export function convertWavToCabIr(wav: Uint8Array | readonly number[], opts: Cab
 }
 
 /**
- * The transport self-check the UI runs before offering an upload: the container's own close frame must
- * equal the XOR of its content. A mismatch is the exact condition the unit DISCARDS (0x13), so the
- * converter refusing to hand such bytes over is the "fails closed" property — for a CORRUPT container only
- * (see the header: it does not, and cannot, catch a wrong sample encoding).
+ * The container's own transport self-check: the close frame must equal the XOR of its content. A mismatch is
+ * the exact condition the unit DISCARDS (0x13), so a caller refusing to hand such bytes over is the "fails
+ * closed" property — for a CORRUPT container only (see the header: it does not, and cannot, catch a wrong
+ * sample encoding). Exported through `forgefx-midi/devices/gen3` and this subpath so an import UI CAN run it
+ * before offering an upload. NOTE (2026-10-13): nothing in Axis calls it yet — `grep -rn
+ * cabIrContainerSelfConsistent Axis/src` finds none — so this is an available helper, NOT a gate that is
+ * actually in place. Wire it (or remove this note) the day the UI runs it.
  */
 export function cabIrContainerSelfConsistent(container: readonly number[]): boolean {
   const close = computeCabIrClosePayload(container);

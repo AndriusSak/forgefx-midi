@@ -62,6 +62,14 @@ export interface TargetRange {
   readonly unit?: string;
   /** Logarithmic taper (e.g. frequency / time knobs) — interpolate geometrically. */
   readonly log?: boolean;
+  /**
+   * The row is an overlay `valueMap:'identity'` row: its 14-bit field carries the VALUE ITSELF
+   * (display == raw), not a position over [min,max]. A writer must emit the value verbatim
+   * (`valueToRaw`'s identity branch), NEVER `(v-min)/(max-min)`. Derived from the SAME
+   * `valueMap` field the offline decoder's identity branch reads (`blockParams.decodeOne`), so a
+   * write cannot drift from the read.
+   */
+  readonly identity?: boolean;
 }
 
 /**
@@ -141,6 +149,8 @@ interface Gen3RangeRow {
   readonly typecode?: number;
   /** Device-true explicit taper (CaptureRig v2 fit); wins over `typecode`. */
   readonly taper?: 'linear' | 'log' | 'flat' | 'custom';
+  /** Range-overlay display mapping: 'identity' means the raw field IS the value. */
+  readonly valueMap?: string;
 }
 type Gen3RangeTable = Readonly<Record<string, Readonly<Record<number, Gen3RangeRow>>>>;
 type Gen3ParamTable = Readonly<Record<string, readonly Gen3Param[]>>;
@@ -456,7 +466,17 @@ export function resolveTargetRange(
       if (lo !== undefined && hi !== undefined) {
         const unit = unitSymbol(param.unit);
         const log = gen3TaperIsLog(range);
-        return { min: lo, max: hi, ...(unit ? { unit } : {}), ...(log ? { log } : {}) };
+        // Carry the overlay's display MAPPING, not only its bounds: an `identity` row's field IS
+        // the value, so the writer must not normalize it by position. This reads the same
+        // `valueMap` the offline decoder keys off, so the write side cannot drift from the read.
+        const identity = range?.valueMap === 'identity';
+        return {
+          min: lo,
+          max: hi,
+          ...(unit ? { unit } : {}),
+          ...(log ? { log } : {}),
+          ...(identity ? { identity: true } : {}),
+        };
       }
     }
     // Amp tone knobs: the decoder scales them to 0..10 — guarantee a range even

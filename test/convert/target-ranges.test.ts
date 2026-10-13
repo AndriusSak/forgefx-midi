@@ -12,13 +12,14 @@ import {
   resolveTargetEnumOptions,
 } from '../../src/convert/targetRanges.js';
 import { convertPreset } from '../../src/convert/engine.js';
+import { valueToRaw } from '../../src/devices/gen3/blockParams.js';
 import type { ConverterPreset } from '../../src/convert/ir.js';
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(`target-ranges: ${msg}`);
 }
 
-export const TARGET_RANGES_CASE_COUNT = 14;
+export const TARGET_RANGES_CASE_COUNT = 15;
 
 export function runTargetRangesTests(): void {
   // ── gen-3 ranges: broadened beyond amp knobs to the device-true tables ──
@@ -103,5 +104,26 @@ export function runTargetRangesTests(): void {
   assert(
     typeof bassParam!.normalized === 'number',
     'am4->fm3: bass param expected a normalized value',
+  );
+
+  // ── identity rows: the WRITE side must emit the VALUE, not a position (defect A, 3rd path) ──
+  // The engine's mapped path used to take the overlay's identity-row BOUNDS but not its MAPPING: it
+  // normalized by position over [min,max], so an identity row wrote `(v-min)/(max-min)` instead of
+  // the value itself. The mapping now travels with the range (`resolveTargetRange().identity`, read
+  // from the same `valueMap` the offline decoder keys off) and `valueToRaw` writes it verbatim.
+  const tonetype = resolveTargetRange('fm3', 'reverb', 'tonetype');
+  assert(
+    tonetype !== undefined && tonetype.identity === true && tonetype.min === 0 && tonetype.max === 3,
+    `fm3 reverb tonetype expected an identity 0..3 range, got ${JSON.stringify(tonetype)}`,
+  );
+  // The WRITTEN RAW (not the normalized value): an identity write of 1 must land raw 1.
+  assert(
+    valueToRaw({ identity: true, value: 1, min: 0, max: 3 }) === 1,
+    `fm3 reverb tonetype identity write: expected written raw 1, got ${valueToRaw({ identity: true, value: 1, min: 0, max: 3 })}`,
+  );
+  // CONTROL — the position mapping this replaces: (1-0)/(3-0)*65534 = 21845 (the defect's raw).
+  assert(
+    valueToRaw({ normalized: (1 - 0) / (3 - 0), min: 0, max: 3 }) === 21845,
+    'control: position-normalized write of 1 over a 0..3 range is 21845 (the raw the bug produced)',
   );
 }

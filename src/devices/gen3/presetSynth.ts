@@ -97,6 +97,8 @@ export interface SynthParam {
   min?: number;
   max?: number;
   log?: boolean;
+  /** `valueMap:'identity'` row: write `value` verbatim (see `valueToRaw`). */
+  identity?: boolean;
 }
 
 /** One IR grid cell (blocks AND shunts). */
