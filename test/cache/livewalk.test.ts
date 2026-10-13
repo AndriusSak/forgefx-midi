@@ -36,7 +36,9 @@ import {
   liveSource,
   VIEW_DEFINITION,
   VIEW_ENUM_LABEL,
+  VIEW_VALUE,
 } from '../../src/cache/index.js';
+import { parseUnit } from '../../src/cache/liveWalk.js';
 import type { CacheRecord, EnumRecord } from '../../src/cache/types.js';
 import { FM3_PARAMS } from '../../src/gen3/fm3/index.js';
 import { assertFm3Equivalence } from './oracle.js';
@@ -44,7 +46,7 @@ import { assertFm3Equivalence } from './oracle.js';
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const FM3 = 0x11;
 
-export const LIVEWALK_CASE_COUNT = 15;
+export const LIVEWALK_CASE_COUNT = 16;
 
 // ===========================================================================
 // Test-only wire ENCODER (inverse of the liveWalk codec)
@@ -613,4 +615,69 @@ export async function runLiveWalk(): Promise<void> {
     if (defQueries > 8) fail(`block 0 not skipped early: ${defQueries} def queries (probe depth must cut it short)`);
   }
   console.log('  cache/livewalk: real FM3 block-0 junk definitions are absent — no records, no 0x1f, early skip');
+
+  // ---- Case 16: real view-0x00 value frames decode — interior NUL padding ---
+  // GOLDEN, captured from a real FM3 (model 0x11), the replies to
+  // buildValueQuery(FM3, eid, pid). All three are complete 60-byte frames whose
+  // payload (cnt 32) is a FIXED-WIDTH display buffer: a NUL-terminated display
+  // string followed by NUL padding. Cab Drive ('5.00') and Reverb Drive ('0.00')
+  // fill the leading region and pad with trailing NULs only, so the old branch
+  // (trim trailing NULs, then require every remaining byte printable) decoded
+  // them. Delay Low Cut's shorter string ('20.0 Hz') leaves INTERIOR NUL padding
+  // ahead of further buffer content ('…Hz\0\0sec'), which that same branch read
+  // as a non-printable byte and rejected with null — dropping the param's value
+  // AND its per-param unit capture on the live walk.
+  {
+    const parseHex = (s: string) => Uint8Array.from(s.split(' ').map((h) => parseInt(h, 16)));
+    const cabDrive = parseHex(
+      'f0 00 01 74 11 01 00 00 3e 00 21 00 00 02 00 78 03 00 00 20 00 1a 4b 46 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 47 f7',
+    );
+    const reverbDrive = parseHex(
+      'f0 00 01 74 11 01 00 00 42 00 20 00 00 00 00 00 00 00 00 20 00 18 0b 46 03 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 f7',
+    );
+    const delayLowCut = parseHex(
+      'f0 00 01 74 11 01 00 00 46 00 10 00 00 00 00 00 00 00 00 20 00 19 0c 05 63 01 01 10 7a 00 00 0e 36 2b 0c 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 65 f7',
+    );
+    const dCab = decodeReply(cabDrive);
+    const dRev = decodeReply(reverbDrive);
+    const dDelay = decodeReply(delayLowCut);
+    if (!dCab || dCab.view !== 'value' || dCab.value !== '5.00') {
+      fail(`Cab Drive value frame decoded ${JSON.stringify(dCab)} (expected value '5.00')`);
+    }
+    if (!dRev || dRev.view !== 'value' || dRev.value !== '0.00') {
+      fail(`Reverb Drive value frame decoded ${JSON.stringify(dRev)} (expected value '0.00')`);
+    }
+    if (!dDelay || dDelay.view !== 'value' || dDelay.value !== '20.0 Hz') {
+      fail(`Delay Low Cut value frame decoded ${JSON.stringify(dDelay)} (expected value '20.0 Hz')`);
+    }
+
+    // The side effect follows from the same decode: the walk's per-param unit
+    // capture reads view 0x00 and previously got null for this frame, so the
+    // served record carried NO `unit`. A decoded value recovers it.
+    if (parseUnit(dDelay.value) !== 'Hz') fail(`Delay Low Cut unit not recovered: ${parseUnit(dDelay.value)}`);
+    const DELAY = 70;
+    const LOWCUT = 16;
+    const defRec: CacheRecord = { kind: 'float', section: DELAY, offset: 0, id: LOWCUT, tc: 0x241, min: 0, max: 100, def: 0, step: 0, t1: 0, t2: 0 };
+    const t: LiveTransport = {
+      request(q) {
+        const view = q[6]!;
+        const param = q[10]! | (q[11]! << 7);
+        if (view === VIEW_DEFINITION && param === LOWCUT) return Promise.resolve(definitionReply(defRec, LOWCUT));
+        if (view === VIEW_VALUE && param === LOWCUT) return Promise.resolve(delayLowCut);
+        if (view === VIEW_ENUM_LABEL) return Promise.resolve(endOfRangeFrame(VIEW_ENUM_LABEL, param));
+        return Promise.resolve(sentinelFrame(view, param));
+      },
+    };
+    const recs = await liveWalk(t, {
+      model: FM3,
+      blocks: [DELAY],
+      maxParamId: LOWCUT,
+      paramAbsentRunLimit: LOWCUT + 4,
+      blockProbeDepth: LOWCUT + 2,
+    });
+    const got = recs.find((r) => r.id === LOWCUT);
+    if (!got || got.kind !== 'float') fail(`unit-capture walk did not reach Delay Low Cut (got ${JSON.stringify(got)})`);
+    if (got.unit !== 'Hz') fail(`Delay Low Cut record unit=${JSON.stringify(got.unit)} (interior-NUL value frame dropped the unit capture)`);
+  }
+  console.log('  cache/livewalk: real FM3 view-0x00 frames (incl. interior-NUL padding) decode and recover the unit');
 }
