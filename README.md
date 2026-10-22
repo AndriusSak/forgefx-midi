@@ -38,6 +38,20 @@ npm test        # tsx test/run-all.ts (golden test suites)
 | `forgefx-midi/devices/am4` | AM4 descriptor (`AM4_DESCRIPTOR`) |
 | `forgefx-midi/catalog/*.json` | device catalogs (7 devices + index) |
 
+## Firmware-true tables (FM3)
+
+The shipped catalog is a snapshot; Fractal's editor cache is the live truth. `gen3/fm3` carries two
+generated tables that the ForgeFX server overlays on the catalog, so block type lists and sub-type
+enums match the firmware:
+
+- `FM3_TYPE_TABLES_FW13` — the type selector per family (`{ paramId, labels }`, index = device ordinal)
+- `FM3_ENUM_ROWS_FW13` — every other changed enum row, including the per-parameter enums of blocks that
+  have no type selector at all (formant vowels, multiplexer input select/mode)
+
+Regenerate them from an `effectDefinitions_<model>_<major>p<minor>.cache` with
+`ForgeFX/server/scripts/gen-fw13-types.ts`. Indexing is by ORDINAL, so a grown list must also widen the
+matching `RANGE` row — the server does that on the profile it serves.
+
 ## Catalogs
 
 `catalog/` ships one JSON per device (`am4`, `axe-fx-gen1`, `axe-fx-ii`,
@@ -47,3 +61,5 @@ npm test        # tsx test/run-all.ts (golden test suites)
 ## License
 
 Apache-2.0. See `LICENSE` and `NOTICE`.
+
+This repository is a fork of [sKuhLight/forgefx-midi](https://github.com/sKuhLight/forgefx-midi).
