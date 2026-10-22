@@ -63,6 +63,7 @@ export {
 export const FM3_RANGES = applyFm3RangeOverlay(FM3_RANGES_GENERATED);
 export { FM3_ROSTERS, type Fm3TypeModel } from './rosters.generated.js';
 export { FM3_ENUM_OVERRIDES } from './enumOverrides.js';
+export { FM3_TYPE_TABLES_FW13, FM3_ENUM_ROWS_FW13, type Fm3TypeTable } from './typeTables.fw13.generated.js';
 export { FM3_CAB_IRS } from './cabIrs.generated.js';
 export {
   FM3_EFFECT_ID_TABLE,
