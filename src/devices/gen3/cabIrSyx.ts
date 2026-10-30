@@ -374,7 +374,8 @@ export function parseCabIrSyx(input: readonly number[] | Uint8Array): CabIrSyx {
 
   return {
     modelId,
-    name: nameRaw.replace(/\s+$/, ''),
+    // The 32nd slot is a NUL terminator in every measured export (0x80 with the flag), so trim it as padding.
+    name: nameRaw.replace(/[\s\u00b7]+$/, ''),
     nameRaw,
     nameSlotFlags: flags,
     startPayload: framePayload(frames[0]!),
@@ -534,7 +535,7 @@ export function buildCabIrContainerFromWords(
   dest: CabIrDestination,
   name: string,
   sampleWords: readonly number[],
-  opts: { nameSlotFlags?: readonly boolean[] } = {},
+  opts: { nameSlotFlags?: readonly boolean[]; lastCharCode?: number } = {},
 ): number[] {
   if (!CAB_IR_KNOWN_GEOMETRY_MODELS.includes(model)) {
     throw new Error(
@@ -549,7 +550,12 @@ export function buildCabIrContainerFromWords(
   if (wanted.length > CAB_IR_NAME_CHARS) throw new Error(`buildCabIrContainerFromWords: name is ${wanted.length} characters — the device stores ${CAB_IR_NAME_CHARS}`);
   if (wanted.some((c) => c.charCodeAt(0) > 0x7f)) throw new Error('buildCabIrContainerFromWords: name must be 7-bit ASCII');
   const flags = opts.nameSlotFlags ?? CAB_IR_DEFAULT_NAME_SLOT_FLAGS;
-  const slots = Array.from({ length: CAB_IR_NAME_CHARS }, (_, i) => (flags[i] ? 0x80 : 0) | ((wanted[i] ?? ' ').charCodeAt(0) & 0x7f));
+  // The 32nd character slot is a TERMINATOR, not a space: every FM3-Edit export measured on 2026-10-30
+  // stores 0x00 there (`0x80` with the flag bit), and the 0x20 seen in an UltraRes export appears to be a
+  // format bit — building a Standard container with a space there fed the unit a payload it could not read.
+  const last = opts.lastCharCode ?? 0x00;
+  const slots = Array.from({ length: CAB_IR_NAME_CHARS }, (_, i) =>
+    (flags[i] ? 0x80 : 0) | (((i === CAB_IR_NAME_CHARS - 1 ? last : (wanted[i] ?? ' ').charCodeAt(0)) & 0x7f)));
   const chunks: number[] = [];
   for (let c = 0; c < CAB_IR_NAME_CHUNKS; c++) {
     chunks.push(...pack5Septet32(((slots[c * 4]!) | (slots[c * 4 + 1]! << 8) | (slots[c * 4 + 2]! << 16) | (slots[c * 4 + 3]! << 24)) >>> 0));

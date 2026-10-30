@@ -65,15 +65,12 @@ export const CAB_IR_SAMPLE_RATE = 48000;
 export const CAB_IR_MAX_WORK_SAMPLES = 16384;
 
 export const CAB_IR_CONVERSION_STATUS =
-  'NOT CONFIRMED — 2026-10-30: four containers written by this encoder (impulse, decaying burst, comb; ' +
-    'float32 AND int32 Q31) were each accepted by the unit (closeCode 0x00, slot POPULATED, name read back) ' +
-    'and each played SILENCE from a cab slot that plays a real user IR normally. A real FM3-Edit export (LT TV Mix 7, ' +
-    '2026-10-30) then showed WHY: the byte layout matches ours exactly - same 10 frames, same 8 name words, same ' +
-    '2040 words - but its sample region is COMPRESSED, not raw samples: entropy 6.83 of 7 bits/byte, no silent ' +
-    'tail, and a flat RMS envelope under float32, int32, int16-pair and 7-bit-bitstream decodings. So this ' +
-    'encoder writes a structurally valid container whose audio the unit cannot play, and the format of the ' +
-    'payload is still UNKNOWN. ' +
-  'CONSTRAINED — one impulse was auditioned through the unit and sounded transparent (the transport, the name round-trip and end-to-end acceptance are proven), but that does NOT discriminate the sample encoding: the impulse reads the same under IEEE-754 float32 and int32 Q31. The unit’s close check proves the bytes arrived intact, not that the samples were encoded the way the unit reads them.';
+  'MEASURED (Standard output format) — 2026-10-30: a ruler WAV with known samples was imported by FM3-Edit ' +
+    '(IR Output Format = Standard) and exported; the export decodes cleanly as 2040 little-endian IEEE-754 ' +
+    'float32 samples at 48 kHz, and this encoder now reproduces that file byte-for-byte (only the start ' +
+    "frame's destination differs). Two rules the earlier containers got wrong: the 32nd name slot is a NUL " +
+    'terminator (0x80 with its flag — 0xA0 marks UltraRes), and the payload must be Standard. UltraRes payloads ' +
+    'are still opaque (7.98 bits/byte, no standard codec decodes them), so UltraRes is NOT writable.';
 
 // ── the assumed sample encoding (A1) ────────────────────────────────────────────────────────────
 
@@ -94,9 +91,9 @@ const _u32 = new Uint32Array(_buf);
 
 /** ASSUMPTION A1 — see the module header. Replace (do not "tune") once a real capture decodes the field. */
 export const ASSUMED_FLOAT32_ENCODING: CabIrSampleEncoding = {
-  id: 'assumed-float32',
-  label: 'IEEE-754 float32 (ASSUMED — not decoded from a real container)',
-  assumed: true,
+  id: 'float32-standard',
+  label: 'IEEE-754 float32 LE, 48 kHz (MEASURED against an FM3-Edit Standard export, 2026-10-30)',
+  assumed: false,
   encode(sample: number): number {
     _f32[0] = Number.isFinite(sample) ? sample : 0;
     return _u32[0]!;

@@ -254,8 +254,10 @@ export function runCabIrConvertTests(): void {
   });
 
   // ── the assumed encoding ────────────────────────────────────────────────────────────────────
-  t('ASSUMPTION A1 pinned: the assumed encoding is float32 bits — 1.0→0x3F800000, −1.0→0xBF800000, 0→0 (EDIT THIS TEST when a real capture decodes the field)', () => {
-    eq(ASSUMED_FLOAT32_ENCODING.assumed, true, 'flagged assumed');
+  t('A1 RESOLVED 2026-10-30: a Standard FM3-Edit export decodes as float32 bits — 1.0→0x3F800000, −1.0→0xBF800000, 0→0', () => {
+    // The field was decoded from a known input: the editor imported a ruler WAV (impulses of 1.0/−0.5/0.25 at
+    // 0/64/128 …) and exported Standard; slot k read back as exactly those values. Hence NOT assumed any more.
+    eq(ASSUMED_FLOAT32_ENCODING.assumed, false, 'measured, not assumed');
     eq(ASSUMED_FLOAT32_ENCODING.encode(1), 0x3f800000, '1.0');
     eq(ASSUMED_FLOAT32_ENCODING.encode(-1), 0xbf800000, '-1.0');
     eq(ASSUMED_FLOAT32_ENCODING.encode(0), 0, '0');
@@ -279,11 +281,12 @@ export function runCabIrConvertTests(): void {
     eq(payload.slice(2 + 40, 2 + 40 + 5), [0x00, 0x00, 0x00, 0x7c, 0x03], 'slot 0 = float32 1.0 as 5 LSB-first septets');
     eq(payload.slice(2 + 45, 2 + 50), [0, 0, 0, 0, 0], 'slot 1 = 0');
   });
-  t('convert: the close frame equals an INDEPENDENT XOR (name chunks 0x20202020 ×7 ^ 0xA0202020 ^ every sample word)', () => {
+  t('convert: the close frame equals an INDEPENDENT XOR (name chunks 0x20202020 ×7 ^ 0x80202020 ^ every sample word)', () => {
     const r = convertWavToCabIr(impulseWav(), { dest, name: '', autoTrim: true });
-    // 7 identical blank-name words XOR to 0x20202020; the flagged last one is 0xA0202020 → 0x80000000;
+    // 7 identical blank-name words XOR to 0x20202020; the last slot is the NUL terminator with its flag,
+    // 0x80202020 (0xA0 would mark UltraRes), and 0x20202020 ^ 0x80202020 = 0xA0000000;
     // the only non-zero sample word is 1.0 = 0x3F800000.
-    const want = (0x80000000 ^ 0x3f800000) >>> 0; // 0xBF800000
+    const want = (0xa0000000 ^ 0x3f800000) >>> 0; // 0x9F800000
     const septets = [0, 7, 14, 21, 28].map((s) => (want >>> s) & 0x7f);
     eq(parseCabIrSyx(r.container).endPayload, septets, 'close payload');
     eq(r.report.closePayload, septets, 'report echoes the same close');
@@ -323,11 +326,11 @@ export function runCabIrConvertTests(): void {
   });
   t('convert: report carries the CONSTRAINED status, the assumed-encoding flag and the ordered steps', () => {
     const r = convertWavToCabIr(wavBytes({ tag: 1, bits: 16, channels: 2, rate: 44100, interleaved: [0, 0, 8192, 8192, 0, 0] }), { dest, name: 'R', minimumPhase: true, autoTrim: true });
-    // The status must state the MEASURED claim: one impulse auditioned, encoding CONSTRAINED but not
-    // discriminated (a wrong encoding could still sound transparent at ~6 dB quieter under Q31).
-    ok(/^CONSTRAINED/.test(r.report.status), 'status says CONSTRAINED (one impulse auditioned; not discriminated)');
-    ok(/not.*discriminate/i.test(r.report.status), 'status says the encoding is not discriminated');
-    eq(r.report.encoding.assumed, true, 'encoding assumed');
+    // The status must state the MEASURED claim: a Standard FM3-Edit export was decoded from a known input,
+    // and UltraRes is explicitly named as NOT writable.
+    ok(/^MEASURED/.test(r.report.status), 'status says MEASURED (Standard output format)');
+    ok(/UltraRes/.test(r.report.status) && /NOT writable/.test(r.report.status), 'status says UltraRes is not writable');
+    eq(r.report.encoding.assumed, false, 'encoding measured, not assumed');
     eq(r.report.mixedDownFromChannels, 2, 'mixdown noted');
     eq(r.report.resampledFrom, 44100, 'resample noted');
     eq(r.report.minimumPhase, true, 'mpt noted');
