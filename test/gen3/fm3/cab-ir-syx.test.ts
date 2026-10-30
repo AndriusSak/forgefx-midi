@@ -180,7 +180,10 @@ export function runCabIrSyxTests(): void {
     // a rename CHANGES the required close — carrying it verbatim is a checksum mismatch
     const renamed = parseCabIrSyx(renameCabIrSyx(bytes, 'LYKOS-TEST-1'));
     const renamedXor = chunkXor(chunksOf(renamed));
-    eq(renamedXor, 0x1dca7d63, 'required close after the LYKOS-TEST-1 rename');
+    // 0x3DC7A6A3 replaces the old 0x1DCA7D63: the 32nd name slot is now the container's TERMINATOR
+    // (0x80 = NUL + flag) instead of a space, which changes that word and therefore the XOR. Measured
+    // against an FM3-Edit Standard export and auditioned on the unit (2026-10-30).
+    eq(renamedXor, 0x3dca7d63, 'required close after the LYKOS-TEST-1 rename');
     ok(renamedXor !== closeVal, 'a rename moves the required close off the specimen value');
     // buildCabIrSyx now RECOMPUTES the close for any edit (measured: a stale value makes the unit
     // discard the upload with close-ack 0x13), so the renamed container must carry the new value.
@@ -225,7 +228,8 @@ export function runCabIrSyxTests(): void {
     const ir = parseCabIrSyx(renamed); // parse re-validates every checksum
     eq(ir.nameRaw.slice(0, 2), 'AB', 'name head');
     eq(ir.nameRaw.length, 32, 'padded to 32');
-    ok(ir.nameRaw.slice(2).split('').every((c) => c === ' '), 'padding is spaces');
+    ok(ir.nameRaw.slice(2, 31).split('').every((c) => c === ' '), 'body padding is spaces');
+    eq(ir.nameRaw[31], '\u00b7', 'the 32nd slot is the terminator (0x80 = NUL + flag), not a space');
   });
 
   t('rename refuses a name longer than 32 characters', () => {

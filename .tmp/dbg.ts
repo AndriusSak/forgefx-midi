@@ -1,0 +1,16 @@
+import { convertWavToCabIr, parseCabIrSyx } from '../src/devices/gen3/index.js';
+import { buildCabIrSyx } from '../src/devices/gen3/cabIrSyx.js';
+const n=64, sr=48000;
+const data=Buffer.alloc(n*4); data.writeFloatLE(1,0);
+const hdr=Buffer.alloc(44); hdr.write('RIFF',0); hdr.writeUInt32LE(36+data.length,4); hdr.write('WAVE',8);
+hdr.write('fmt ',12); hdr.writeUInt32LE(16,16); hdr.writeUInt16LE(1,20); hdr.writeUInt16LE(1,22);
+hdr.writeUInt32LE(sr,24); hdr.writeUInt32LE(sr*4,28); hdr.writeUInt16LE(4,32); hdr.writeUInt16LE(32,34);
+hdr.write('data',36); hdr.writeUInt32LE(data.length,40);
+const wav=new Uint8Array([...hdr,...data]);
+const r=convertWavToCabIr(wav,{name:'BEFORE',autoTrim:true});
+const p=parseCabIrSyx(r.container);
+console.log('nameRaw', JSON.stringify(p.nameRaw));
+console.log('codes', [...Array(32).keys()].map(i=>p.nameRaw.charCodeAt(i).toString(16)).join(' '));
+console.log('flags', p.nameSlotFlags.map(f=>f?1:0).join(''));
+const ren=buildCabIrSyx(p,{name:'AFTER'});
+console.log('renamed', JSON.stringify(parseCabIrSyx(ren).name));

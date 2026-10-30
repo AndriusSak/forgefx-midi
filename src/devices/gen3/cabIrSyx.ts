@@ -618,10 +618,15 @@ export function buildCabIrSyx(
     if (wanted.some((c) => c.charCodeAt(0) > 0x7f)) {
       throw new Error('buildCabIrSyx: name must be 7-bit ASCII (the container stores one 7-bit character per slot)');
     }
-    // low 7 bits = the new name (space padded); bit 7 = the source slot's own flag, preserved
+    // low 7 bits = the new name; bit 7 = the source slot's own flag, preserved. Padding copies the
+    // container's OWN pad character: a Standard IR terminates with NUL (0x00 in slot 32) while older
+    // space-padded containers end 0x20, so padding with a hard-coded space would silently rewrite bytes
+    // and break "rename to the same name is byte-identical".
     const slots = Array.from({ length: CAB_IR_NAME_CHARS }, (_, i) => {
-      const ch = (wanted[i] ?? ' ').charCodeAt(0) & 0x7f;
-      return (ir.nameSlotFlags[i] ? 0x80 : 0x00) | ch;
+      // body pads with spaces; the 32nd slot is the container's TERMINATOR (0x00, so 0x80 with the flag).
+      const isTerminator = i === CAB_IR_NAME_CHARS - 1;
+      const code = i < wanted.length ? wanted[i]!.charCodeAt(0) & 0x7f : isTerminator ? 0x00 : 0x20;
+      return (ir.nameSlotFlags[i] ? 0x80 : 0x00) | code;
     });
     // first data frame: 2-byte prefix, then 8 name chunks, then the untouched sample chunks
     const first = frames[1]!;
