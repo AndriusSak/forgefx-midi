@@ -226,6 +226,17 @@ export {
 } from './performPage.js';
 export type { PerformPage, PerformSlot } from './performPage.js';
 export {
+  findGlobalPerformPage,
+  readText16v,
+  globalPerformSlotRecords,
+  encodeLabel16,
+  GLOBAL_PERFORM_SLOTS,
+  GLOBAL_PERFORM_LABEL_CHARS,
+  GLOBAL_PERFORM_TABLE_LEN,
+  GLOBAL_PERFORM_PAGE_LEN,
+} from './globalPerform.js';
+export type { GlobalPerformPage, GlobalPerformSlot } from './globalPerform.js';
+export {
   parsePerPresetSwitches,
   patchPerPresetSwitch,
   findPerPresetSwitchBlock,
