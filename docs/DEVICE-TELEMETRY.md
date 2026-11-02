@@ -62,9 +62,8 @@ All gen‑3; AM4 has none of these on the wire (see below).
   presets backwards. No byte, u16, or 5-septet float in the 576-byte page matches both panel readings, and
   sub `0x2E` fields 1..7 return empty payloads. The earlier "identity" claim came from two coincidental
   agreements. Do not show this value as CPU; the client disables the live meter until a real source exists.
-  `frame[37]` of the `fn 0x01 / sub 0x2E` reply IS the percentage — identity, measured against the
-  unit's own panel on fw 13.0 (2026‑11‑02): preset 012 raw 69 ↔ panel 69.3‑69.5; preset 154 raw 72 ↔
-  panel 72.4. The panel carries one decimal the byte rounds off; that is the only difference.
+  The superseded identity claim (`frame[37]` = percent, from preset 012 raw 69 ↔ 69.3 and 154 raw 72 ↔
+  72.4) is deleted here on purpose: those two agreements were the coincidence the 411 pair disproved.
   **Two rules that cost a round each:** (1) never fit a line to ONE observation — an earlier revision
   read `32 + raw·0.5` because the single fixture value 65 sat on that line (it crosses identity at
   raw 64), and it is wrong everywhere else; (2) the reply **echoes the loaded preset**
