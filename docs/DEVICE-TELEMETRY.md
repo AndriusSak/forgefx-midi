@@ -55,7 +55,13 @@ All gen‑3; AM4 has none of these on the wire (see below).
 - **Output levels** — `buildOutputMeterPoll` / `parseOutputMeterRms` / `meterRmsToDb`
   (`gen3/axe-fx-iii/telemetry.ts:109‑122`, 5‑septet float32 RMS → `10·log10`, clamp −40…+6 dB).
   ForgeFX `registryCore.#pollMeters()` round‑robins the 4 outputs → SSE `{type:'meters'}`.
-- **CPU** — `buildCpuPoll`/`parseCpuRawLoad`/`cpuPercentFromRaw` (`telemetry.ts:139‑151`).
+- **CPU** — ⚠️ **NOT DECODED (retracted 2026-11-02).** `buildCpuPoll`/`parseCpuRawLoad` read byte 37 of the
+  `fn 0x01 / sub 0x2E` status page, and that byte is **not** load: on fw 13.0 the 4-block preset
+  Input→Amp(USA MK IV Rhythm)→Cab→Output read **88** there while the FM3's own screen read **22 %**, and a
+  12-block factory preset read **61** against a panel reading of **62.9 %** — the byte orders the two
+  presets backwards. No byte, u16, or 5-septet float in the 576-byte page matches both panel readings, and
+  sub `0x2E` fields 1..7 return empty payloads. The earlier "identity" claim came from two coincidental
+  agreements. Do not show this value as CPU; the client disables the live meter until a real source exists.
   `frame[37]` of the `fn 0x01 / sub 0x2E` reply IS the percentage — identity, measured against the
   unit's own panel on fw 13.0 (2026‑11‑02): preset 012 raw 69 ↔ panel 69.3‑69.5; preset 154 raw 72 ↔
   panel 72.4. The panel carries one decimal the byte rounds off; that is the only difference.
