@@ -56,9 +56,16 @@ All gen‑3; AM4 has none of these on the wire (see below).
   (`gen3/axe-fx-iii/telemetry.ts:109‑122`, 5‑septet float32 RMS → `10·log10`, clamp −40…+6 dB).
   ForgeFX `registryCore.#pollMeters()` round‑robins the 4 outputs → SSE `{type:'meters'}`.
 - **CPU** — `buildCpuPoll`/`parseCpuRawLoad`/`cpuPercentFromRaw` (`telemetry.ts:139‑151`).
-  The byte IS the percentage (Fractal's SysEx reference: "CPU % (single byte from 0 to 100)"; FM3
-  panel confirmed raw 80 ↔ 79), so the mapping is now the identity. `#pollMeters()` every ~8th tick →
-  SSE `{type:'cpu'}`.
+  `frame[37]` of the `fn 0x01 / sub 0x2E` reply IS the percentage — identity, measured against the
+  unit's own panel on fw 13.0 (2026‑11‑02): preset 012 raw 69 ↔ panel 69.3‑69.5; preset 154 raw 72 ↔
+  panel 72.4. The panel carries one decimal the byte rounds off; that is the only difference.
+  **Two rules that cost a round each:** (1) never fit a line to ONE observation — an earlier revision
+  read `32 + raw·0.5` because the single fixture value 65 sat on that line (it crosses identity at
+  raw 64), and it is wrong everywhere else; (2) the reply **echoes the loaded preset**
+  (`frame[21] = preset >> 1`, `frame[22] = 0`), so prove a frame describes the preset on the panel
+  before comparing numbers — a reading carried across a preset switch is how "app 75 %, panel 22 %"
+  reports happen (the consumer must drop `cpu`/`cpuAt` on any structural change).
+  `#pollMeters()` every ~8th tick → SSE `{type:'cpu'}`.
 - **Tuner** — `buildTunerPageOpen/Close/Poll`, `parseTunerFreqHz` (`telemetry.ts:65‑81`). FM3
   byte‑confirmed: fn `0x01` sub `0x19`, field `0x02` = fundamental Hz as float32 @ frame off 12.
 - **Tempo** — `buildSetTempoViaParam` + `parseTempoResponse`; III cmd `0x14`.
