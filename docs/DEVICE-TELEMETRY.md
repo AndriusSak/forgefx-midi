@@ -55,8 +55,13 @@ All gen‑3; AM4 has none of these on the wire (see below).
 - **Output levels** — `buildOutputMeterPoll` / `parseOutputMeterRms` / `meterRmsToDb`
   (`gen3/axe-fx-iii/telemetry.ts:109‑122`, 5‑septet float32 RMS → `10·log10`, clamp −40…+6 dB).
   ForgeFX `registryCore.#pollMeters()` round‑robins the 4 outputs → SSE `{type:'meters'}`.
-- **CPU** — ⚠️ **NOT DECODED (retracted 2026-11-02).** `buildCpuPoll`/`parseCpuRawLoad` read byte 37 of the
-  `fn 0x01 / sub 0x2E` status page, and that byte is **not** load: on fw 13.0 the 4-block preset
+- **CPU** — ⚠️ **NOT ON THE WIRE (established 2026-11-02).** A 30-second USBPcap capture of a *connected*
+  FM3-Edit session (editor showing 22.1 %, then 70.6 % after a preset change) contains 37 distinct requests
+  and **no field in any reply matches either figure** — not as a byte, not ÷4, not ÷10, not as a 5-septet
+  float. The only periodic read in that window is `sub 0x2E`, which is `SUB_ACTION_GRID_LAYOUT` (the 12×4
+  routing grid at wire byte 366), not a status page — so the "status page" premise was wrong from the start.
+  The editor derives its number from the preset's blocks; there is no CPU register to poll. `frame[37]` is
+  a grid byte. The original (also wrong) reading of that request follows for the record: on fw 13.0 the 4-block preset
   Input→Amp(USA MK IV Rhythm)→Cab→Output read **88** there while the FM3's own screen read **22 %**, and a
   12-block factory preset read **61** against a panel reading of **62.9 %** — the byte orders the two
   presets backwards. No byte, u16, or 5-septet float in the 576-byte page matches both panel readings, and
