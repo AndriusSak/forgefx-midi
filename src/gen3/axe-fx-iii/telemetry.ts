@@ -200,13 +200,18 @@ export const CPU_RAW_OFFSET = 37;
 /**
  * CPU% = base + raw·slope.
  *
- * The field is ALREADY the percentage: Fractal's MIDI SysEx reference documents the CPU reply as
- * "CPU % (single byte from 0 to 100)", and the FM3 front panel agrees with this byte directly —
- * observed raw 80 ↔ panel 79 (a 1-point lag, not a scale error).
+ * The field is ALREADY the percentage: measured live against the unit's own panel (firmware 13.0,
+ * raw byte read over USB within a second of the panel reading):
  *
- * This used to read `32 + raw·0.5`, which was fitted against the ONE raw value the capture fixture
- * holds (65). That line crosses the identity exactly at raw = 64, so the fit looked right where it
- * was measured and drifted linearly away from it: at raw 80 it read 72 while the panel showed 79.
+ *   preset 012 "USA Mk IV"          raw 69  ↔ panel 69.3-69.5
+ *   preset 154 "Bl@de Runner FM"    raw 72  ↔ panel 72.4
+ *
+ * Two presets, identity both times; the panel just carries a fractional digit the byte rounds off.
+ * Do NOT fit a line through a single observation again — an earlier revision read `32 + raw·0.5`
+ * because one fixture point (65) sat on that line, and it is wrong everywhere else.
+ *
+ * That `32 + raw·0.5` fit crossed the identity exactly at raw = 64, so it looked right where it was
+ * measured and drifted linearly away from it: at raw 80 it read 72 while the panel showed ~79.
  */
 export const CPU_BASE = 0;
 export const CPU_SLOPE = 1;
