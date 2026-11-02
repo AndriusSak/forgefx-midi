@@ -16,9 +16,11 @@
  *     float32 at pos 12 → dB = 10·log10(v). These are the REAL calibrated
  *     leveling meters (matched FM3-Edit's readout to ~1 dB); the 0x2E
  *     bytes-35/36 meters saturate and are NOT used.
- *   CPU — fn 0x01 sub 0x2E returns a ≥590-byte system-status frame; byte 37
- *     is the block DSP load → CPU% ≈ base + raw·slope (base 32, slope 0.5,
- *     matched to the FM3 front panel).
+ *   CPU — fn 0x01 sub 0x2E returns a ≥590-byte system-status frame whose
+ *     payload is 7-bit packed MSB-first. Unpack it and read a little-endian
+ *     float32 at offset 12: that IS the CPU percentage (65.74 in the captured
+ *     "yeet" frame, panel 65.7). No scaling. Proven against FM3-Edit's own
+ *     decoder (FUN_14033c720) and its display path (FUN_140387680 → +0x4A0).
  *   TEMPO WRITE — the fn 0x14 SET does not take on FM3; FM3-Edit writes the
  *     global-tempo parameter instead (fn 0x01 typed SET, effectId 2
  *     (Controllers), paramId 0x20, value = float32 BPM).
@@ -195,26 +197,33 @@ export function buildLooperControl(effectId: number, controlPid: number, on: boo
 
 /** Minimum length of the fn 0x01 sub 0x2E system-status frame. */
 export const CPU_RESPONSE_MIN_LEN = 590;
-/** Byte offset of the block-DSP-load field inside the system-status frame. */
-export const CPU_RAW_OFFSET = 37;
+/** First payload septet of the system-status reply (after the 6 header fields). */
+export const CPU_PAYLOAD_START = 21;
+/** Offset of the CPU float32 inside the decoded payload. */
+export const CPU_PERCENT_OFFSET = 12;
+
 /**
- * CPU% = base + raw·slope.
+ * Unpack a 7-bit MSB-first payload into bytes.
  *
- * The field is ALREADY the percentage: measured live against the unit's own panel (firmware 13.0,
- * raw byte read over USB within a second of the panel reading):
- *
- *   preset 012 "USA Mk IV"          raw 69  ↔ panel 69.3-69.5
- *   preset 154 "Bl@de Runner FM"    raw 72  ↔ panel 72.4
- *
- * Two presets, identity both times; the panel just carries a fractional digit the byte rounds off.
- * Do NOT fit a line through a single observation again — an earlier revision read `32 + raw·0.5`
- * because one fixture point (65) sat on that line, and it is wrong everywhere else.
- *
- * That `32 + raw·0.5` fit crossed the identity exactly at raw = 64, so it looked right where it was
- * measured and drifted linearly away from it: at raw 80 it read 72 while the panel showed ~79.
+ * This is the packing FM3-Edit's own decoder uses (`FUN_14033c720`): each septet contributes its
+ * seven bits most-significant-first, and a byte is emitted whenever eight bits have accumulated.
+ * The header fields are LSB-first pairs; the payload is NOT — do not reuse the 5-septet float
+ * helper here.
  */
-export const CPU_BASE = 0;
-export const CPU_SLOPE = 1;
+export function unpack7BitMsb(septets: readonly number[]): Uint8Array {
+  const out: number[] = [];
+  let bits = 0;
+  let n = 0;
+  for (const s of septets) {
+    bits = (bits << 7) | (s & 0x7f);
+    n += 7;
+    while (n >= 8) {
+      n -= 8;
+      out.push((bits >>> n) & 0xff);
+    }
+  }
+  return Uint8Array.from(out);
+}
 
 /** Poll the system-status block (heavy ≥590-byte read — poll sparingly). */
 export function buildCpuPoll(modelByte: number): number[] {
@@ -224,13 +233,23 @@ export function buildCpuPoll(modelByte: number): number[] {
 export function isCpuResponse(frame: readonly number[]): boolean {
   return frame[5] === FN_PARAMETER && frame[6] === SUB_SYSTEM_STATUS && frame.length >= CPU_RESPONSE_MIN_LEN;
 }
-/** Raw block-DSP-load byte. */
-export function parseCpuRawLoad(frame: readonly number[]): number {
-  return frame[CPU_RAW_OFFSET] ?? 0;
-}
-/** Raw load byte → CPU percent, 1-decimal rounded (reference math). */
-export function cpuPercentFromRaw(raw: number, base = CPU_BASE, slope = CPU_SLOPE): number {
-  return Math.round((base + raw * slope) * 10) / 10;
+
+/**
+ * CPU percent from a system-status reply: little-endian float32 at decoded payload offset 12.
+ *
+ * The decoded payload layout (confirmed against FM3-Edit's own readers):
+ *   [0x00] u32 preset number · [0x04] u32 · [0x08] u32 scene index
+ *   [0x0C] f32 CPU %          · [0x10] char[32] preset name · [0x30] char[32] scene names
+ *
+ * Returns null when the frame is too short or the field is not finite.
+ */
+export function parseCpuPercent(frame: readonly number[]): number | null {
+  if (!isCpuResponse(frame)) return null;
+  const decoded = unpack7BitMsb(frame.slice(CPU_PAYLOAD_START, -2));
+  if (decoded.length < CPU_PERCENT_OFFSET + 4) return null;
+  const view = new DataView(decoded.buffer, decoded.byteOffset + CPU_PERCENT_OFFSET, 4);
+  const v = view.getFloat32(0, true);
+  return Number.isFinite(v) ? Math.round(v * 10) / 10 : null;
 }
 
 // ── tempo write (FM3-validated param-address path) ─────────────────────

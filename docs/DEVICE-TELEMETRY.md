@@ -55,13 +55,33 @@ All gen‑3; AM4 has none of these on the wire (see below).
 - **Output levels** — `buildOutputMeterPoll` / `parseOutputMeterRms` / `meterRmsToDb`
   (`gen3/axe-fx-iii/telemetry.ts:109‑122`, 5‑septet float32 RMS → `10·log10`, clamp −40…+6 dB).
   ForgeFX `registryCore.#pollMeters()` round‑robins the 4 outputs → SSE `{type:'meters'}`.
-- **CPU** — ⚠️ **NOT ON THE WIRE (established 2026-11-02).** A 30-second USBPcap capture of a *connected*
-  FM3-Edit session (editor showing 22.1 %, then 70.6 % after a preset change) contains 37 distinct requests
-  and **no field in any reply matches either figure** — not as a byte, not ÷4, not ÷10, not as a 5-septet
-  float. The only periodic read in that window is `sub 0x2E`, which is `SUB_ACTION_GRID_LAYOUT` (the 12×4
-  routing grid at wire byte 366), not a status page — so the "status page" premise was wrong from the start.
-  The editor derives its number from the preset's blocks; there is no CPU register to poll. `frame[37]` is
-  a grid byte.
+- **CPU** — ✅ **ON THE WIRE (settled 2026-11-02 by static RE of FM3-Edit plus a captured frame).** The
+  reply to `fn 0x01 / sub 0x2E` is a ≥590-byte system-status page. Its payload is **7-bit packed
+  MSB-first** (starting at frame[21]), so scanning the raw frame byte-wise finds nothing — that is why
+  the earlier capture analysis concluded "not transmitted". Unpack it and read a **little-endian float32
+  at decoded offset 12**; that is the CPU percentage, unscaled:
+
+  ```
+  decoded[0x00] u32      preset number
+  decoded[0x04] u32      (1)
+  decoded[0x08] u32      current scene index
+  decoded[0x0C] f32      CPU %     <-- 65.74 in the captured "yeet" frame (panel 65.7)
+  decoded[0x10] char[32] preset name
+  decoded[0x30] char[32] scene names
+  ```
+
+  FM3-Edit proves the same layout: `FUN_14033c720` is the MSB-first unpacker; `FUN_140387680` copies the
+  page into a 0x1F0-byte struct at `+0x494` and reads the float at `+0x4A0` (= payload offset 12);
+  `FUN_140249b70` formats `"CPU %.1f%%"` and normalises the bar by 100.0. The preset name at `+0x4A4`
+  and the scene index at `+0x49C` are read by `FUN_14024aad0`.
+
+  The page is the **system-status** page, not grid-only: the 12×4 routing grid lives further into the
+  same payload (wire byte 366), which is what misled the earlier byte-37 reading. `frame[37]` is a
+  bit-packed fragment that happens to sit near the float's high byte — it matched twice by coincidence
+  and then inverted (88 vs 22 %); it was never the value.
+
+  `#pollMeters()` every ~8th tick → SSE `{type:'cpu', percent}`. `parseCpuPercent()` in
+  `gen3/axe-fx-iii/telemetry.ts` is the single decoder; Axis's CPU widget and `cpuFrameTap` both use it.
   **Official sources (checked 2026-11-02) — there is no published per-block cost table.** The FM3 Owner's
   Manual, "Preset CPU Limits" (p. 50), gives only the ceiling (~80 % usable, above which the unit mutes and
   flashes `CPU LIMIT - Muted`) plus qualitative parameter tips (Amp Output Comp, Cab Mute/IR count, Reverb
@@ -72,21 +92,15 @@ All gen‑3; AM4 has none of these on the wire (see below).
   a core with amp modelling and Cab IRs run on an accelerator. The only per-block figures in circulation are
   community-measured (Fractal forum, "FM3 Block CPU Usage Estimates", 2020, fw 1.02: blank layout ≈ 11 %,
   usable ≈ 80 %) and are firmware-dependent, so they cannot be treated as a decode.
-  The original (also wrong) reading of that request follows for the record: on fw 13.0 the 4-block preset
-  Input→Amp(USA MK IV Rhythm)→Cab→Output read **88** there while the FM3's own screen read **22 %**, and a
-  12-block factory preset read **61** against a panel reading of **62.9 %** — the byte orders the two
-  presets backwards. No byte, u16, or 5-septet float in the 576-byte page matches both panel readings, and
-  sub `0x2E` fields 1..7 return empty payloads. The earlier "identity" claim came from two coincidental
-  agreements. Do not show this value as CPU; the client disables the live meter until a real source exists.
-  The superseded identity claim (`frame[37]` = percent, from preset 012 raw 69 ↔ 69.3 and 154 raw 72 ↔
-  72.4) is deleted here on purpose: those two agreements were the coincidence the 411 pair disproved.
-  **Two rules that cost a round each:** (1) never fit a line to ONE observation — an earlier revision
-  read `32 + raw·0.5` because the single fixture value 65 sat on that line (it crosses identity at
-  raw 64), and it is wrong everywhere else; (2) the reply **echoes the loaded preset**
-  (`frame[21] = preset >> 1`, `frame[22] = 0`), so prove a frame describes the preset on the panel
-  before comparing numbers — a reading carried across a preset switch is how "app 75 %, panel 22 %"
-  reports happen (the consumer must drop `cpu`/`cpuAt` on any structural change).
-  `#pollMeters()` every ~8th tick → SSE `{type:'cpu'}`.
+  **How the earlier analysis went wrong** (worth keeping): it tested the raw 590 bytes for a byte, u16 or
+  5-septet float matching the panel, and found none because the payload is bit-packed — the value never
+  appears byte-aligned. Two coincidental `frame[37]` matches then produced the "identity" claim, which a
+  4-block preset (wire 88 vs panel 22 %) disproved. **Rules:** (1) unpack the bitstream before testing any
+  offset; (2) never fit a line to ONE observation — the retired `32 + raw·0.5` crossed identity at raw 64,
+  so it looked right only where it was fitted; (3) prove a frame describes the preset on the panel before
+  comparing numbers (decoded offset 0 is the preset number, offset 16 the name); the consumer must still
+  drop `cpu`/`cpuAt` on any structural change, because a reading carried across a preset switch is how
+  "app 75 %, panel 22 %" reports happen.
 - **Tuner** — `buildTunerPageOpen/Close/Poll`, `parseTunerFreqHz` (`telemetry.ts:65‑81`). FM3
   byte‑confirmed: fn `0x01` sub `0x19`, field `0x02` = fundamental Hz as float32 @ frame off 12.
 - **Tempo** — `buildSetTempoViaParam` + `parseTempoResponse`; III cmd `0x14`.

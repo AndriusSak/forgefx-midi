@@ -24,8 +24,9 @@ import {
   meterRmsToDb,
   buildCpuPoll,
   isCpuResponse,
-  parseCpuRawLoad,
-  cpuPercentFromRaw,
+  unpack7BitMsb,
+  parseCpuPercent,
+  CPU_PAYLOAD_START,
   buildSetTempoViaParam,
 } from '../../../src/gen3/axe-fx-iii/telemetry.js';
 import {
@@ -84,15 +85,25 @@ export function runFm3TelemetryTests(): void {
     }
   }
 
-  // ── CPU: builder + raw byte + percent math ──
+  // ── CPU: builder + decoded float32 at payload offset 12 ──
+  // The payload is 7-bit MSB-first; the CPU is a plain little-endian float32 at decoded offset 12.
+  // The captured "yeet" frames read 65.74/65.75 against a 65.7 panel — the old byte-37 decode is
+  // gone (it was a bit-packed fragment, not the value).
   const cpu = entry('cpu-poll');
   assertEq(toHex(buildCpuPoll(FM3)), cpu.requestHex, 'buildCpuPoll frame');
   for (const run of cpu.runs) {
     const frames = run.frames.map(parseHex);
     const f = frames.find((x) => isCpuResponse(x));
     if (!f) throw new Error('[fm3/telemetry] no matching CPU response frame');
-    const raw = parseCpuRawLoad(f);
-    assertEq({ rawByte37: raw, percent: cpuPercentFromRaw(raw) }, run.expected, 'CPU raw/percent');
+    const pct = parseCpuPercent(f);
+    if (pct == null || Math.abs(pct - 65.75) > 0.1) {
+      throw new Error(`[fm3/telemetry] CPU percent ${pct} not within 0.1 of 65.75`);
+    }
+    // The same decode must land the preset name at offset 16 — proves the bit alignment, not just
+    // that some float happened to be plausible.
+    const decoded = unpack7BitMsb(f.slice(CPU_PAYLOAD_START, -2));
+    const name = String.fromCharCode(...decoded.slice(16, 32)).replace(/\0[\s\S]*$/, '').trim();
+    if (name !== 'yeet') throw new Error(`[fm3/telemetry] decoded preset name '${name}' !== 'yeet'`);
   }
 
   // ── tuner page open/close: byte-exact vs the reference envelope math ──
