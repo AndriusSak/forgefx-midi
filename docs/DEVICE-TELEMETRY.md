@@ -61,7 +61,18 @@ All gen‑3; AM4 has none of these on the wire (see below).
   float. The only periodic read in that window is `sub 0x2E`, which is `SUB_ACTION_GRID_LAYOUT` (the 12×4
   routing grid at wire byte 366), not a status page — so the "status page" premise was wrong from the start.
   The editor derives its number from the preset's blocks; there is no CPU register to poll. `frame[37]` is
-  a grid byte. The original (also wrong) reading of that request follows for the record: on fw 13.0 the 4-block preset
+  a grid byte.
+  **Official sources (checked 2026-11-02) — there is no published per-block cost table.** The FM3 Owner's
+  Manual, "Preset CPU Limits" (p. 50), gives only the ceiling (~80 % usable, above which the unit mutes and
+  flashes `CPU LIMIT - Muted`) plus qualitative parameter tips (Amp Output Comp, Cab Mute/IR count, Reverb
+  Quality, Compressor type, Phaser stages, Filter order/Q, Multitap/Plex delay type, Synth voices). The
+  Fractal wiki (`wiki.fractalaudio.com` → CPU) defines the number: the percentage of CPU the **audio thread**
+  uses on a multi-threaded RTOS, displayed as an **average** that fluctuates with instruction-cache
+  hits/misses; bypassing a block does **not** lower it, removing one does; on the FM3 the Delay blocks share
+  a core with amp modelling and Cab IRs run on an accelerator. The only per-block figures in circulation are
+  community-measured (Fractal forum, "FM3 Block CPU Usage Estimates", 2020, fw 1.02: blank layout ≈ 11 %,
+  usable ≈ 80 %) and are firmware-dependent, so they cannot be treated as a decode.
+  The original (also wrong) reading of that request follows for the record: on fw 13.0 the 4-block preset
   Input→Amp(USA MK IV Rhythm)→Cab→Output read **88** there while the FM3's own screen read **22 %**, and a
   12-block factory preset read **61** against a panel reading of **62.9 %** — the byte orders the two
   presets backwards. No byte, u16, or 5-septet float in the 576-byte page matches both panel readings, and
